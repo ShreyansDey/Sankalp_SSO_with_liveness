@@ -10,7 +10,16 @@ if env_file.exists():
 else:
     load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sankalp.db")
+raw_db = os.getenv("DATABASE_URL", "sqlite:///./sankalp.db")
+if raw_db.startswith("sqlite:///./"):
+    db_filename = raw_db[len("sqlite:///./"):]
+    canonical_db = (base_dir.parent / db_filename).resolve().as_posix()
+    DATABASE_URL = f"sqlite:///{canonical_db}"
+elif raw_db == "sqlite:///sankalp.db":
+    canonical_db = (base_dir.parent / "sankalp.db").resolve().as_posix()
+    DATABASE_URL = f"sqlite:///{canonical_db}"
+else:
+    DATABASE_URL = raw_db
 JWT_SECRET = os.getenv("JWT_SECRET", "sankalp-dev-super-secret-key-change-in-production-must-be-long-and-random-32bytes")
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "10"))
 SSO_SESSION_HOURS = int(os.getenv("SSO_SESSION_HOURS", "8"))
