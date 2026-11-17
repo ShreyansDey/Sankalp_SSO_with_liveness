@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
-import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, UserCheck } from "lucide-react";
+import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, UserCheck, Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
   const [searchParams] = useSearchParams();
@@ -13,6 +13,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -136,14 +137,38 @@ export default function Login() {
 
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input
-              type="password"
-              className="form-input"
-              placeholder="••••••••"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div style={{ position: "relative" }}>
+              <input
+                type={showPassword ? "text" : "password"}
+                className="form-input"
+                style={{ paddingRight: "42px" }}
+                placeholder="••••••••"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: "absolute",
+                  right: "10px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  padding: "4px",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center"
+                }}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
