@@ -28,6 +28,8 @@ share/python-wheels/
 *.egg
 .venv
 venv/
+*venv*/
+san_venv/
 ENV/
 *.db
 *.sqlite3

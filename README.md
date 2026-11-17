@@ -115,7 +115,13 @@ Sankalp_prep_pack/
 │   │   └── 07-demo-apps.md          # Photography Club & Robotics Lab
 │   └── _module-template.md          # Architectural documentation template
 ├── scripts/
-│   └── dev.ps1                      # Windows PowerShell one-click launcher
+│   ├── start.ps1 / start.bat / start.sh     # One-click start all services
+│   ├── stop.ps1 / stop.bat / stop.sh        # One-click stop all services & release ports
+│   ├── restart.ps1 / restart.bat / restart.sh # One-click restart services
+│   ├── status.ps1                           # Service status board
+│   ├── manager.py                           # Cross-platform Python lifecycle manager
+│   ├── dev.ps1                              # Windowed PowerShell developer launcher
+│   └── README.md                            # Complete scripts documentation
 ├── .github/workflows/
 │   └── ci.yml                       # GitHub Actions CI workflow (lint, test, build)
 ├── docker-compose.yml               # Multi-container local orchestration
@@ -138,8 +144,40 @@ Sankalp_prep_pack/
 - Node.js 20+
 - Google Chrome or Microsoft Edge (for webcam access)
 
-### Method 1: Cross-Platform Single Command
-Run the unified development launcher from the repository root:
+### Method 1: Single-Command Scripts (Windows / Mac / Linux)
+
+**On Windows (PowerShell):**
+```powershell
+.\scripts\start.ps1       # Start whole system
+.\scripts\status.ps1      # Check service status
+.\scripts\restart.ps1     # Restart whole system
+.\scripts\stop.ps1        # Stop whole system
+```
+
+**On Windows (CMD / Double-Click):**
+```cmd
+scripts\start.bat
+scripts\restart.bat
+scripts\stop.bat
+```
+
+**On Linux / macOS:**
+```bash
+./scripts/start.sh
+./scripts/restart.sh
+./scripts/stop.sh
+```
+
+**Cross-Platform Python:**
+```bash
+python scripts/manager.py start
+python scripts/manager.py status
+python scripts/manager.py restart
+python scripts/manager.py stop
+```
+
+### Method 2: Interactive Development Runner
+Run the interactive foreground launcher:
 ```bash
 python run_all.py
 ```
