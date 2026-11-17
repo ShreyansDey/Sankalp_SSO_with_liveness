@@ -1,4 +1,4 @@
-﻿# PowerShell Start Script for Sankalp SSO
+# PowerShell Start Script for Sankalp SSO
 [CmdletBinding()]
 param(
     [switch]$Background,
