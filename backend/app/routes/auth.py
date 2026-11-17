@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,7 +24,7 @@ class SignupRequest(BaseModel):
     password: str = Field(..., min_length=8)
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 @router.post("/signup")

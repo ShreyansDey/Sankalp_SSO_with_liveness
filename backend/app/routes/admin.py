@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -20,7 +20,7 @@ from app.jobs.cleanup import run_cleanup_job
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 class CreateInviteRequest(BaseModel):
-    email: EmailStr
+    email: str
     role: str = "member"
     term_end: Optional[date] = None
 

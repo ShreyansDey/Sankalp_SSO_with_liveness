@@ -86,9 +86,13 @@ def clear_pid_file():
         except Exception:
             pass
 
+import socket
+
 def check_port_listening(port):
-    """Returns True if a port is in LISTENING state."""
-    return len(get_pids_by_port(port)) > 0
+    """Instant, non-blocking check if a local port is listening."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 def seed_db():
     print("🌱 Initializing and seeding database...")
