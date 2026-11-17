@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sankalp_db
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: sankalp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d sankalp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sankalp_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/sankalp
+      JWT_SECRET: dev-production-secret-must-be-long-and-random-32bytes
+      ACCESS_TOKEN_MINUTES: 10
+      SSO_SESSION_HOURS: 8
+      INACTIVITY_DAYS: 60
+      FRONTEND_ORIGIN: http://localhost:5173
+      APP_A_ORIGIN: http://localhost:5174
+      APP_B_ORIGIN: http://localhost:5175
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sankalp_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  demo-apps:
+    build:
+      context: ./demo-apps
+      dockerfile: Dockerfile
+    container_name: sankalp_demo_apps
+    restart: always
+    ports:
+      - "5174:5174"
+      - "5175:5175"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
