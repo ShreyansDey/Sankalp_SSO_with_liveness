@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api";
 import {
   Users,
-  UserX,
-  UserCheck,
   Send,
   Boxes,
   ScrollText,
@@ -16,13 +14,31 @@ import {
   Trash2,
   Clock,
   Shield,
-  RefreshCw
+  Search,
+  ExternalLink
 } from "lucide-react";
+
+/**
+ * ==============================================================================
+ * REAL ACCESS / SANKALP SSO — ADMIN CONSOLE
+ * ==============================================================================
+ * In plain words (Layman):
+ *   This is the security command center for university department administrators.
+ *   Admins can view all club members, see their expiration dates, click "Mark as left"
+ *   to instantly cut off access everywhere, trigger automatic cleanup on demand,
+ *   and inspect the live audit log.
+ *
+ * Technical Role:
+ *   - Matches the '4. Admin: Members' design component (Admin.dc.html)
+ *   - Calls /admin/users, /admin/invites, /admin/products, /admin/audit, /admin/cleanup/run
+ *   - Enforces role == "admin" (non-admins redirected to /login)
+ * ==============================================================================
+ */
 
 export default function Admin() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("users"); // users, invites, products, audit, cleanup
+  const [activeTab, setActiveTab] = useState("members"); // members, invites, products, cleanup, audit
 
   // Data states
   const [users, setUsers] = useState([]);
@@ -31,19 +47,20 @@ export default function Admin() {
   const [statusMessage, setStatusMessage] = useState(null);
   const [errorMessage, setErrorMessage] = useState(null);
 
-  // Invite form
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // all, active, ending_soon, disabled
+
+  // Invite modal/form
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteTermEnd, setInviteTermEnd] = useState("");
   const [generatedInvite, setGeneratedInvite] = useState(null);
 
-  // Product form
-  const [productName, setProductName] = useState("");
-  const [productRedirect, setProductRedirect] = useState("");
-  const [registeredProduct, setRegisteredProduct] = useState(null);
-
   // Cleanup result
   const [cleanupResult, setCleanupResult] = useState(null);
+  const [cleaning, setCleaning] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -72,7 +89,7 @@ export default function Admin() {
       const data = await apiRequest("/admin/users");
       setUsers(data);
     } catch (err) {
-      setErrorMessage("Failed to load users");
+      setErrorMessage("Failed to load users from database");
     }
   };
 
@@ -86,11 +103,11 @@ export default function Admin() {
   };
 
   const handleMarkLeft = async (user) => {
-    if (!window.confirm(`Mark ${user.email} as left? This will instantly revoke access to all connected apps.`)) return;
+    if (!window.confirm(`Mark ${user.email} as left? This will instantly revoke access across all 5 clubs.`)) return;
     try {
       setStatusMessage(null);
       setErrorMessage(null);
-      const res = await apiRequest(`/admin/users/${user.id}/mark-left`, { method: "POST" });
+      await apiRequest(`/admin/users/${user.id}/mark-left`, { method: "POST" });
       setStatusMessage(`✅ ${user.name} marked as left. All active sessions and tokens revoked.`);
       await fetchUsers();
       await fetchAudit();
@@ -99,53 +116,33 @@ export default function Admin() {
     }
   };
 
-  const handleToggleStatus = async (user) => {
+  const handleEnable = async (user) => {
     try {
       setStatusMessage(null);
       setErrorMessage(null);
-      if (user.status === "active") {
-        await apiRequest(`/admin/users/${user.id}/disable`, {
-          method: "POST",
-          body: JSON.stringify({ reason: "admin" })
-        });
-        setStatusMessage(`User ${user.email} disabled.`);
-      } else {
-        await apiRequest(`/admin/users/${user.id}/enable`, { method: "POST" });
-        setStatusMessage(`User ${user.email} re-enabled.`);
-      }
+      await apiRequest(`/admin/users/${user.id}/enable`, { method: "POST" });
+      setStatusMessage(`✅ ${user.name} has been re-enabled.`);
       await fetchUsers();
       await fetchAudit();
     } catch (err) {
-      setErrorMessage(err.message || "Action failed");
+      setErrorMessage(err.message || "Failed to enable user");
     }
   };
 
-  const handleDeleteRequest = async (user) => {
+  const handleRunCleanup = async () => {
     try {
+      setCleaning(true);
       setStatusMessage(null);
       setErrorMessage(null);
-      const res = await apiRequest(`/admin/users/${user.id}/delete-request`, { method: "POST" });
-      setStatusMessage(res.message);
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to request deletion");
-    }
-  };
-
-  const handleDeleteApprove = async (user) => {
-    try {
-      setStatusMessage(null);
-      setErrorMessage(null);
-      const res = await apiRequest(`/admin/users/${user.id}/delete-approve`, { method: "POST" });
-      setStatusMessage(res.message);
+      const res = await apiRequest("/admin/cleanup/run", { method: "POST" });
+      setCleanupResult(res);
+      setStatusMessage(`🧹 Cleanup finished: ${res.total_disabled} expired/inactive accounts disabled.`);
       await fetchUsers();
       await fetchAudit();
     } catch (err) {
-      if (err.error === "waiting_period_active") {
-        setErrorMessage(`⚠️ Deletion Refused: ${err.message}`);
-      } else {
-        setErrorMessage(err.message || "Failed to approve deletion");
-      }
+      setErrorMessage(err.message || "Failed to run automated cleanup");
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -159,553 +156,727 @@ export default function Admin() {
         body: JSON.stringify({
           email: inviteEmail,
           role: inviteRole,
-          term_end: inviteTermEnd || null
-        })
+          term_end: inviteTermEnd || null,
+        }),
       });
       setGeneratedInvite(res);
-      setStatusMessage("Invite created successfully!");
+      setStatusMessage(`✅ Invite created for ${inviteEmail}`);
       setInviteEmail("");
+      setInviteTermEnd("");
       await fetchAudit();
     } catch (err) {
       setErrorMessage(err.message || "Failed to create invite");
     }
   };
 
-  const handleCreateProduct = async (e) => {
-    e.preventDefault();
-    try {
-      setStatusMessage(null);
-      setErrorMessage(null);
-      const res = await apiRequest("/admin/products", {
-        method: "POST",
-        body: JSON.stringify({
-          name: productName,
-          redirect_uri: productRedirect
-        })
-      });
-      setRegisteredProduct(res);
-      setStatusMessage("Product registered successfully! Copy client secret now.");
-      setProductName("");
-      setProductRedirect("");
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to register product");
-    }
-  };
-
-  const handleRunCleanup = async () => {
-    try {
-      setStatusMessage(null);
-      setErrorMessage(null);
-      const res = await apiRequest("/admin/cleanup/run", { method: "POST" });
-      setCleanupResult(res);
-      setStatusMessage(`Cleanup job finished: ${res.total_disabled} accounts disabled.`);
-      await fetchUsers();
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to run cleanup job");
-    }
-  };
-
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     try {
       await apiRequest("/auth/logout", { method: "POST" });
     } catch (e) {
-    } finally {
-      navigate("/login");
+      // Ignore
     }
+    navigate("/login");
   };
+
+  const getInitials = (name) => {
+    if (!name) return "AD";
+    const parts = name.trim().split(" ");
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  // KPI Calculations
+  const activeCount = users.filter((u) => u.status === "active").length;
+  const disabledCount = users.filter((u) => u.status === "disabled").length;
+  const endingSoonCount = users.filter((u) => {
+    if (u.status !== "active" || !u.term_end) return false;
+    const diffDays = Math.ceil((new Date(u.term_end) - new Date()) / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 30;
+  }).length;
+  const waitingDeleteCount = users.filter((u) => u.status === "disabled" && u.disabled_at).length;
+
+  // Filtered Users
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
+      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (statusFilter === "active") return u.status === "active";
+    if (statusFilter === "disabled") return u.status === "disabled";
+    if (statusFilter === "ending_soon") {
+      if (u.status !== "active" || !u.term_end) return false;
+      const diffDays = Math.ceil((new Date(u.term_end) - new Date()) / (1000 * 60 * 60 * 24));
+      return diffDays >= 0 && diffDays <= 30;
+    }
+    return true;
+  });
 
   if (loading) {
     return (
-      <div className="main-content" style={{ textAlign: "center", marginTop: "100px" }}>
-        <p style={{ color: "var(--text-muted)" }}>Loading admin console...</p>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F3EFE7" }}>
+        <p style={{ color: "#5A6270", fontSize: "15px" }}>Loading administration console...</p>
       </div>
     );
   }
 
-  const activeCount = users.filter((u) => u.status === "active").length;
-  const disabledCount = users.filter((u) => u.status === "disabled").length;
-
   return (
-    <div className="app-container">
-      {/* Navbar */}
-      <header className="navbar">
-        <div className="brand">
-          <Shield size={24} color="var(--primary)" />
-          <span>Sankalp Admin Console</span>
-          <span className="brand-badge">Self-Hosted</span>
-        </div>
-        <div className="nav-links">
-          <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            Logged in as <strong>{currentUser?.email}</strong>
-          </span>
-          <button className="btn btn-secondary" style={{ padding: "6px 12px", fontSize: "0.82rem" }} onClick={handleLogout}>
-            <LogOut size={14} /> Sign Out
-          </button>
+    <div style={{
+      minHeight: "100vh",
+      fontFamily: "'Inter', system-ui, sans-serif",
+      color: "#12171E",
+      background: "#F3EFE7",
+      display: "flex",
+      flexDirection: "column"
+    }}>
+
+      {/* TOP HEADER */}
+      <header style={{ background: "#12171E", color: "#F5F1E8" }}>
+        <div style={{
+          boxSizing: "border-box",
+          padding: "14px 32px",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" stroke="#D9822B" strokeWidth="2"></circle>
+              <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
+              <path d="M2 16h6M24 16h6" stroke="#D9822B" strokeWidth="2" strokeLinecap="round"></path>
+            </svg>
+            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "21px", fontWeight: 600 }}>
+              Real Access
+            </span>
+            <span style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              letterSpacing: "1.6px",
+              color: "#12171E",
+              background: "#D9822B",
+              borderRadius: "4px",
+              padding: "3px 8px"
+            }}>
+              ADMIN
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "20px", fontSize: "14px" }}>
+            <Link to="/clubs" style={{ color: "#D8D2C4", textDecoration: "none", fontSize: "13px" }}>
+              🏛️ Member Clubs View
+            </Link>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                background: "#2A3340",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "12px",
+                fontWeight: 600
+              }}>
+                {getInitials(currentUser?.name)}
+              </div>
+              <span>{currentUser?.name || "Admin"}</span>
+            </div>
+            <button
+              onClick={handleSignOut}
+              style={{
+                color: "#F5F1E8",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "14px",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px"
+              }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="main-content">
-        {/* Alerts */}
-        {statusMessage && (
-          <div className="alert alert-success">
-            <CheckCircle size={18} style={{ flexShrink: 0 }} />
-            <div>{statusMessage}</div>
-          </div>
-        )}
-        {errorMessage && (
-          <div className="alert alert-danger">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <div>{errorMessage}</div>
-          </div>
-        )}
+      {/* BODY WITH SIDE NAV */}
+      <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "stretch" }}>
 
-        {/* Stats Bar */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-          <div className="card" style={{ padding: "20px" }}>
-            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 600 }}>TOTAL USERS</div>
-            <div style={{ fontSize: "1.8rem", fontWeight: 800, marginTop: "4px" }}>{users.length}</div>
-          </div>
-          <div className="card" style={{ padding: "20px" }}>
-            <div style={{ fontSize: "0.8rem", color: "var(--success)", fontWeight: 600 }}>ACTIVE MEMBERS</div>
-            <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--success)", marginTop: "4px" }}>{activeCount}</div>
-          </div>
-          <div className="card" style={{ padding: "20px" }}>
-            <div style={{ fontSize: "0.8rem", color: "var(--danger)", fontWeight: 600 }}>REVOKED / DISABLED</div>
-            <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--danger)", marginTop: "4px" }}>{disabledCount}</div>
-          </div>
-          <div className="card" style={{ padding: "20px" }}>
-            <div style={{ fontSize: "0.8rem", color: "var(--primary)", fontWeight: 600 }}>CONNECTED PRODUCTS</div>
-            <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--primary)", marginTop: "4px" }}>App A, App B</div>
-          </div>
-        </div>
-
-        {/* Tabs Bar */}
-        <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", marginBottom: "24px", paddingBottom: "12px", overflowX: "auto" }}>
+        {/* SIDEBAR NAVIGATION */}
+        <nav style={{
+          flex: "0 0 232px",
+          boxSizing: "border-box",
+          padding: "28px 16px",
+          borderRight: "1px solid #DDD6C7",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+          background: "#F3EFE7"
+        }}>
           <button
-            className={`btn ${activeTab === "users" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setActiveTab("users")}
+            onClick={() => setActiveTab("members")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: activeTab === "members" ? "#E4DDCF" : "transparent",
+              fontSize: "15px",
+              fontWeight: activeTab === "members" ? 600 : 500,
+              color: activeTab === "members" ? "#12171E" : "#4A5260",
+              border: "none",
+              textAlign: "left",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
           >
-            <Users size={16} /> Members & Users
+            <Users size={16} /> Members
           </button>
+
           <button
-            className={`btn ${activeTab === "invites" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setActiveTab("invites")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: activeTab === "invites" ? "#E4DDCF" : "transparent",
+              fontSize: "15px",
+              fontWeight: activeTab === "invites" ? 600 : 500,
+              color: activeTab === "invites" ? "#12171E" : "#4A5260",
+              border: "none",
+              textAlign: "left",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
           >
-            <Send size={16} /> Invite Member
+            <Send size={16} /> Invites
           </button>
+
           <button
-            className={`btn ${activeTab === "products" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => setActiveTab("products")}
-          >
-            <Boxes size={16} /> Products & Apps
-          </button>
-          <button
-            className={`btn ${activeTab === "audit" ? "btn-primary" : "btn-secondary"}`}
-            onClick={() => { setActiveTab("audit"); fetchAudit(); }}
+            onClick={() => setActiveTab("audit")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: activeTab === "audit" ? "#E4DDCF" : "transparent",
+              fontSize: "15px",
+              fontWeight: activeTab === "audit" ? 600 : 500,
+              color: activeTab === "audit" ? "#12171E" : "#4A5260",
+              border: "none",
+              textAlign: "left",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
           >
             <ScrollText size={16} /> Audit Log
           </button>
+
           <button
-            className={`btn ${activeTab === "cleanup" ? "btn-primary" : "btn-secondary"}`}
             onClick={() => setActiveTab("cleanup")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: activeTab === "cleanup" ? "#E4DDCF" : "transparent",
+              fontSize: "15px",
+              fontWeight: activeTab === "cleanup" ? 600 : 500,
+              color: activeTab === "cleanup" ? "#12171E" : "#4A5260",
+              border: "none",
+              textAlign: "left",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
           >
-            <Play size={16} /> Automated Cleanup
+            <Clock size={16} /> Automated Cleanup
           </button>
-        </div>
+        </nav>
 
-        {/* TAB 1: USERS LIST */}
-        {activeTab === "users" && (
-          <div className="card" style={{ padding: "24px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <div>
-                <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>Members & Account Lifecycles</h2>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Instantly revoke former members via "Mark as Left" (FR2/M5).
-                </p>
-              </div>
-              <button className="btn btn-secondary" style={{ padding: "6px 12px", fontSize: "0.82rem" }} onClick={fetchUsers}>
-                <RefreshCw size={14} /> Refresh
-              </button>
+        {/* MAIN ADMIN WORK AREA */}
+        <main style={{
+          flex: "1 1 640px",
+          minWidth: 0,
+          boxSizing: "border-box",
+          padding: "32px 40px 40px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "28px"
+        }}>
+
+          {/* Status Alerts */}
+          {statusMessage && (
+            <div style={{
+              background: "#DDEFE2",
+              border: "1px solid #1F6B3F",
+              borderRadius: "8px",
+              padding: "12px 16px",
+              color: "#1F6B3F",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}>
+              <CheckCircle size={18} />
+              <div>{statusMessage}</div>
             </div>
+          )}
 
-            <div className="data-table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Member</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Term End</th>
-                    <th>Last Active</th>
-                    <th>Liveness</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{u.name}</div>
-                        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{u.email}</div>
-                      </td>
-                      <td>
-                        <span style={{ textTransform: "capitalize", fontSize: "0.85rem" }}>{u.role}</span>
-                      </td>
-                      <td>
-                        <span className={`badge badge-${u.status}`}>
-                          {u.status} {u.disabled_reason ? `(${u.disabled_reason})` : ""}
-                        </span>
-                      </td>
-                      <td>{u.term_end || "No expiry"}</td>
-                      <td style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                        {u.last_active_at ? new Date(u.last_active_at).toLocaleString() : "Never"}
-                      </td>
-                      <td>
-                        {u.liveness_passed_at ? (
-                          <span style={{ color: "var(--success)", fontSize: "0.8rem", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                            <CheckCircle size={14} /> Passed
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>Pending</span>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          {u.status === "active" && (
-                            <button
-                              className="btn btn-danger"
-                              style={{ padding: "4px 8px", fontSize: "0.75rem" }}
-                              onClick={() => handleMarkLeft(u)}
-                              title="Instantly blocks all connected products"
-                            >
-                              <UserX size={13} /> Mark as Left
-                            </button>
-                          )}
-                          {u.status === "disabled" && (
-                            <button
-                              className="btn btn-secondary"
-                              style={{ padding: "4px 8px", fontSize: "0.75rem" }}
-                              onClick={() => handleToggleStatus(u)}
-                            >
-                              <UserCheck size={13} /> Re-enable
-                            </button>
-                          )}
-                          {u.status === "disabled" && (
-                            <>
-                              <button
-                                className="btn btn-secondary"
-                                style={{ padding: "4px 8px", fontSize: "0.75rem" }}
-                                onClick={() => handleDeleteRequest(u)}
-                                title="Request Deletion"
-                              >
-                                Request Delete
-                              </button>
-                              <button
-                                className="btn btn-danger"
-                                style={{ padding: "4px 8px", fontSize: "0.75rem" }}
-                                onClick={() => handleDeleteApprove(u)}
-                                title="Requires 30 days after disable"
-                              >
-                                Approve Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {errorMessage && (
+            <div style={{
+              background: "#F6DDD4",
+              border: "1px solid #9B3A22",
+              borderRadius: "8px",
+              padding: "12px 16px",
+              color: "#9B3A22",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}>
+              <AlertCircle size={18} />
+              <div>{errorMessage}</div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 2: INVITE MEMBER */}
-        {activeTab === "invites" && (
-          <div className="card" style={{ maxWidth: "600px", margin: "0 auto" }}>
-            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "4px" }}>Create Member Invite</h2>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "20px" }}>
-              Members receive a unique invite link to set their own password and verify presence.
-            </p>
-
-            <form onSubmit={handleCreateInvite}>
-              <div className="form-group">
-                <label className="form-label">Member Email</label>
-                <input
-                  type="email"
-                  className="form-input"
-                  placeholder="student@club.edu"
-                  required
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Role</label>
-                <select
-                  className="form-input"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Term End Date (Optional)</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={inviteTermEnd}
-                  onChange={(e) => setInviteTermEnd(e.target.value)}
-                />
-                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                  When this date passes, the cleanup job will automatically disable the account.
+          {/* TAB 1: MEMBERS */}
+          {activeTab === "members" && (
+            <>
+              {/* Header and Action Buttons */}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: "16px" }}>
+                <div>
+                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px", lineHeight: 1.1 }}>
+                    Members
+                  </h1>
+                  <div style={{ fontSize: "14px", color: "#5A6270" }}>
+                    Connected to PostgreSQL. Revocation blocks all 5 campus clubs in under 0.2s.
+                  </div>
                 </div>
-              </div>
-
-              <button type="submit" className="btn btn-primary btn-block">
-                Generate Invite Link
-              </button>
-            </form>
-
-            {generatedInvite && (
-              <div style={{ marginTop: "20px", padding: "16px", background: "#f8fafc", borderRadius: "8px", border: "1px solid var(--border)" }}>
-                <div style={{ fontSize: "0.85rem", fontWeight: 600, marginBottom: "6px" }}>Invite Generated:</div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <input
-                    type="text"
-                    readOnly
-                    className="form-input"
-                    style={{ fontSize: "0.85rem", background: "#fff" }}
-                    value={generatedInvite.link}
-                  />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
                   <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      navigator.clipboard.writeText(generatedInvite.link);
-                      alert("Invite link copied to clipboard!");
+                    type="button"
+                    disabled={cleaning}
+                    onClick={handleRunCleanup}
+                    style={{
+                      height: "44px",
+                      padding: "0 20px",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#12171E",
+                      background: "transparent",
+                      border: "1px solid #12171E",
+                      borderRadius: "8px",
+                      cursor: "pointer"
                     }}
                   >
-                    <Copy size={16} />
+                    {cleaning ? "Running..." : "Run cleanup now"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowInviteModal(true)}
+                    style={{
+                      height: "44px",
+                      padding: "0 20px",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#F5F1E8",
+                      background: "#12171E",
+                      border: 0,
+                      borderRadius: "8px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    + Invite member
                   </button>
                 </div>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* TAB 3: REGISTER PRODUCTS */}
-        {activeTab === "products" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
-            <div className="card">
-              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "4px" }}>Connected Products</h2>
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "16px" }}>
-                Active demo products authorized for SSO login.
-              </p>
-
-              <div style={{ border: "1px solid var(--border)", borderRadius: "8px", padding: "14px", marginBottom: "12px" }}>
-                <div style={{ fontWeight: 700 }}>App A — Photography Club</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
-                  client_id: app-a
+              {/* Summary KPIs */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px" }}>
+                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
+                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1 }}>{activeCount}</div>
+                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Active members</div>
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                  redirect_uri: http://localhost:5174/callback
+                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
+                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1, color: "#8A4A0F" }}>{endingSoonCount}</div>
+                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Ending in 30 days</div>
+                </div>
+                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
+                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1, color: "#9B3A22" }}>{disabledCount}</div>
+                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Disabled accounts</div>
+                </div>
+                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
+                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1 }}>{waitingDeleteCount}</div>
+                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Waiting 30-day delete</div>
                 </div>
               </div>
 
-              <div style={{ border: "1px solid var(--border)", borderRadius: "8px", padding: "14px" }}>
-                <div style={{ fontWeight: 700 }}>App B — Robotics Lab</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
-                  client_id: app-b
+              {/* Members Table Card */}
+              <section style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
+                {/* Search & Filter Bar */}
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "16px 20px", borderBottom: "1px solid #E6E0D2" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "14px", fontWeight: 500 }}>
+                    {["all", "active", "ending_soon", "disabled"].map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setStatusFilter(f)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: "999px",
+                          border: "none",
+                          cursor: "pointer",
+                          background: statusFilter === f ? "#12171E" : "transparent",
+                          color: statusFilter === f ? "#F5F1E8" : "#4A5260",
+                          textTransform: "capitalize"
+                        }}
+                      >
+                        {f.replace("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <input
+                      type="search"
+                      placeholder="Search by name or email"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      style={{
+                        width: "260px",
+                        maxWidth: "100%",
+                        height: "38px",
+                        boxSizing: "border-box",
+                        padding: "0 14px",
+                        fontSize: "14px",
+                        color: "#12171E",
+                        background: "#F3EFE7",
+                        border: "1px solid #B9B2A3",
+                        borderRadius: "8px"
+                      }}
+                    />
+                  </div>
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                  redirect_uri: http://localhost:5175/callback
+
+                {/* Table */}
+                <div style={{ overflowX: "auto" }}>
+                  <div style={{ minWidth: "860px" }}>
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "2.4fr 1fr 1.8fr 1.2fr 1.2fr 1.2fr",
+                      gap: "16px",
+                      padding: "12px 20px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      letterSpacing: "1.2px",
+                      color: "#5A6270",
+                      background: "#F3EFE7"
+                    }}>
+                      <div>MEMBER</div>
+                      <div>ROLE</div>
+                      <div>STATUS</div>
+                      <div>TERM ENDS</div>
+                      <div>LAST ACTIVE</div>
+                      <div style={{ textAlign: "right" }}>ACTIONS</div>
+                    </div>
+
+                    {filteredUsers.length === 0 ? (
+                      <div style={{ padding: "30px", textAlign: "center", color: "#5A6270" }}>
+                        No members found matching your search.
+                      </div>
+                    ) : (
+                      filteredUsers.map((u) => {
+                        const isDisabled = u.status === "disabled" || u.status === "deleted";
+                        return (
+                          <div
+                            key={u.id}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "2.4fr 1fr 1.8fr 1.2fr 1.2fr 1.2fr",
+                              gap: "16px",
+                              alignItems: "center",
+                              padding: "14px 20px",
+                              borderTop: "1px solid #E6E0D2",
+                              fontSize: "14px",
+                              background: isDisabled ? "#F7F4EC" : "transparent"
+                            }}
+                          >
+                            {/* Member Name + Avatar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                              <div style={{
+                                width: "36px",
+                                height: "36px",
+                                flex: "none",
+                                borderRadius: "50%",
+                                background: isDisabled ? "#E7E3DA" : "#E4DDCF",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                color: isDisabled ? "#6B7280" : "#12171E"
+                              }}>
+                                {getInitials(u.name)}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: 500, color: isDisabled ? "#4A5260" : "#12171E" }}>{u.name}</div>
+                                <div style={{ fontSize: "13px", color: "#5A6270" }}>{u.email}</div>
+                              </div>
+                            </div>
+
+                            {/* Role */}
+                            <div style={{ textTransform: "capitalize", color: isDisabled ? "#4A5260" : "#12171E" }}>
+                              {u.role}
+                            </div>
+
+                            {/* Status Pill */}
+                            <div>
+                              {u.status === "active" ? (
+                                <span style={{ fontSize: "13px", fontWeight: 500, color: "#1F6B3F", background: "#DDEFE2", borderRadius: "999px", padding: "4px 12px" }}>
+                                  Active
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: "13px", fontWeight: 500, color: "#9B3A22", background: "#F6DDD4", borderRadius: "999px", padding: "4px 12px" }}>
+                                  Disabled {u.disabled_reason ? `· ${u.disabled_reason}` : ""}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Term End */}
+                            <div style={{ fontSize: "13px", color: isDisabled ? "#4A5260" : "#12171E" }}>
+                              {u.term_end ? new Date(u.term_end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Indefinite"}
+                            </div>
+
+                            {/* Last Active */}
+                            <div style={{ fontSize: "13px", color: "#5A6270" }}>
+                              {u.last_active_at ? new Date(u.last_active_at).toLocaleDateString() : "Never"}
+                            </div>
+
+                            {/* Action Button */}
+                            <div style={{ textAlign: "right" }}>
+                              {u.status === "active" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkLeft(u)}
+                                  style={{
+                                    height: "36px",
+                                    padding: "0 14px",
+                                    fontSize: "13px",
+                                    fontWeight: 600,
+                                    color: "#12171E",
+                                    background: "transparent",
+                                    border: "1px solid #12171E",
+                                    borderRadius: "8px",
+                                    cursor: "pointer"
+                                  }}
+                                >
+                                  Mark as left
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleEnable(u)}
+                                  style={{
+                                    height: "36px",
+                                    padding: "0 14px",
+                                    fontSize: "13px",
+                                    fontWeight: 600,
+                                    color: "#12171E",
+                                    background: "transparent",
+                                    border: "none",
+                                    textDecoration: "underline",
+                                    textUnderlineOffset: "3px",
+                                    cursor: "pointer"
+                                  }}
+                                >
+                                  Re-enable
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
+
+          {/* TAB 2: AUDIT LOG */}
+          {activeTab === "audit" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div>
+                <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
+                  Audit Log
+                </h1>
+                <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
+                  Every login, liveness check, revocation, and automated cleanup is immutably recorded in PostgreSQL.
+                </p>
+              </div>
+
+              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+                    <thead>
+                      <tr style={{ background: "#F3EFE7", textAlign: "left", fontSize: "12px", color: "#5A6270", letterSpacing: "1px" }}>
+                        <th style={{ padding: "12px 20px" }}>TIMESTAMP</th>
+                        <th style={{ padding: "12px 20px" }}>ACTION</th>
+                        <th style={{ padding: "12px 20px" }}>ACTOR</th>
+                        <th style={{ padding: "12px 20px" }}>DETAILS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map((log) => (
+                        <tr key={log.id} style={{ borderTop: "1px solid #E6E0D2" }}>
+                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
+                            {new Date(log.at).toLocaleString()}
+                          </td>
+                          <td style={{ padding: "12px 20px" }}>
+                            <span style={{
+                              fontSize: "12px",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              padding: "2px 8px",
+                              borderRadius: "4px",
+                              background: log.action.includes("left") || log.action.includes("denied") ? "#F6DDD4" : "#E4DDCF",
+                              color: log.action.includes("left") || log.action.includes("denied") ? "#9B3A22" : "#12171E"
+                            }}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
+                            {log.actor_id || "System"}
+                          </td>
+                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
+                            {JSON.stringify(log.detail || {})}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
+          )}
 
-            <div className="card">
-              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: "4px" }}>Register New Product</h2>
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "16px" }}>
-                Generate client_id and client_secret for external team applications.
-              </p>
+          {/* TAB 3: INVITES & TAB 4: CLEANUP */}
+          {activeTab === "cleanup" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "600px" }}>
+              <div>
+                <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
+                  Automated Cleanup Job
+                </h1>
+                <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
+                  Evaluates all student accounts against two conditions: (1) term end date expired, or (2) no activity for 60 days.
+                </p>
+              </div>
 
-              <form onSubmit={handleCreateProduct}>
-                <div className="form-group">
-                  <label className="form-label">Product Name</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Coding Club Portal"
-                    required
-                    value={productName}
-                    onChange={(e) => setProductName(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Allowed Redirect URI (Exact Match)</label>
-                  <input
-                    type="url"
-                    className="form-input"
-                    placeholder="http://localhost:5176/callback"
-                    required
-                    value={productRedirect}
-                    onChange={(e) => setProductRedirect(e.target.value)}
-                  />
-                </div>
-                <button type="submit" className="btn btn-primary btn-block">
-                  Register Product
+              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", padding: "28px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                <h3 style={{ margin: 0, fontSize: "20px" }}>On-Demand Execution (Demo Trigger)</h3>
+                <p style={{ fontSize: "14px", color: "#5A6270", margin: 0 }}>
+                  In production, this job executes automatically every 24 hours. Click below to run it immediately and see expired accounts disabled.
+                </p>
+                <button
+                  type="button"
+                  disabled={cleaning}
+                  onClick={handleRunCleanup}
+                  className="btn-dark"
+                  style={{ alignSelf: "flex-start" }}
+                >
+                  {cleaning ? "Evaluating Accounts..." : "Run Cleanup Job Now"}
                 </button>
-              </form>
+              </div>
+            </div>
+          )}
 
-              {registeredProduct && (
-                <div style={{ marginTop: "16px", padding: "14px", background: "var(--warning-light)", borderRadius: "8px", border: "1px solid rgba(217, 119, 6, 0.2)" }}>
-                  <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--warning)", marginBottom: "4px" }}>
-                    ⚠️ Copy Secret (Shown Only Once)
-                  </div>
-                  <div style={{ fontSize: "0.8rem", fontFamily: "var(--font-mono)" }}>
-                    client_id: <strong>{registeredProduct.client_id}</strong>
-                  </div>
-                  <div style={{ fontSize: "0.8rem", fontFamily: "var(--font-mono)", wordBreak: "break-all" }}>
-                    client_secret: <strong>{registeredProduct.client_secret}</strong>
-                  </div>
+        </main>
+      </div>
+
+      {/* INVITE MEMBER MODAL */}
+      {showInviteModal && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(18, 23, 30, 0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "20px",
+          zIndex: 999
+        }}>
+          <div style={{
+            background: "#FBF9F4",
+            border: "1px solid #DDD6C7",
+            borderRadius: "16px",
+            padding: "32px",
+            maxWidth: "480px",
+            width: "100%",
+            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
+          }}>
+            <h2 style={{ margin: "0 0 8px", fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px" }}>
+              Invite New Member
+            </h2>
+            <p style={{ fontSize: "14px", color: "#5A6270", marginBottom: "20px" }}>
+              Create an onboarding invite link. The student will set their password and pass liveness verification.
+            </p>
+
+            <form onSubmit={handleCreateInvite} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "13px", fontWeight: 500 }}>Student Email</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="student@college.edu"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="input-editorial"
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "13px", fontWeight: 500 }}>Membership Expiration (Term End)</label>
+                <input
+                  type="date"
+                  value={inviteTermEnd}
+                  onChange={(e) => setInviteTermEnd(e.target.value)}
+                  className="input-editorial"
+                />
+              </div>
+
+              {generatedInvite && (
+                <div style={{ background: "#E4DDCF", padding: "12px", borderRadius: "8px", fontSize: "13px", wordBreak: "break-all" }}>
+                  <strong>Invite Link:</strong>
+                  <div>{generatedInvite.link}</div>
                 </div>
               )}
-            </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "12px" }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowInviteModal(false); setGeneratedInvite(null); }}
+                  style={{
+                    height: "40px",
+                    padding: "0 16px",
+                    background: "transparent",
+                    border: "1px solid #B9B2A3",
+                    borderRadius: "8px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  className="btn-dark"
+                  style={{ height: "40px" }}
+                >
+                  Generate Invite
+                </button>
+              </div>
+            </form>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* TAB 4: AUDIT LOG */}
-        {activeTab === "audit" && (
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <div>
-                <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>Security & Audit Log</h2>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Tamper-evident trail of logins, liveness results, admin revocations, and automated cleanups.
-                </p>
-              </div>
-              <button className="btn btn-secondary" style={{ padding: "6px 12px", fontSize: "0.82rem" }} onClick={fetchAudit}>
-                <RefreshCw size={14} /> Refresh
-              </button>
-            </div>
-
-            <div className="data-table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Action</th>
-                    <th>Actor ID</th>
-                    <th>Target ID</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td style={{ whiteSpace: "nowrap", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                        {new Date(log.at).toLocaleString()}
-                      </td>
-                      <td>
-                        <span
-                          className="badge"
-                          style={{
-                            background:
-                              log.action.includes("pass") || log.action.includes("ok")
-                                ? "var(--success-light)"
-                                : log.action.includes("fail") || log.action.includes("left") || log.action.includes("denied")
-                                ? "var(--danger-light)"
-                                : "var(--primary-light)",
-                            color:
-                              log.action.includes("pass") || log.action.includes("ok")
-                                ? "var(--success)"
-                                : log.action.includes("fail") || log.action.includes("left") || log.action.includes("denied")
-                                ? "var(--danger)"
-                                : "var(--primary)",
-                          }}
-                        >
-                          {log.action}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)" }}>
-                        {log.actor_id ? log.actor_id.substring(0, 8) + "..." : "system"}
-                      </td>
-                      <td style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)" }}>
-                        {log.target_id ? log.target_id.substring(0, 8) + "..." : "—"}
-                      </td>
-                      <td style={{ fontSize: "0.78rem", fontFamily: "var(--font-mono)", maxWidth: "300px", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {log.detail ? JSON.stringify(log.detail) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: AUTOMATED CLEANUP (Demo Step 5) */}
-        {activeTab === "cleanup" && (
-          <div className="card" style={{ maxWidth: "700px", margin: "0 auto" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
-              <div style={{ padding: "12px", background: "var(--primary-light)", borderRadius: "10px", color: "var(--primary)" }}>
-                <Clock size={28} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: "1.2rem", fontWeight: 700 }}>Automated Lifecycle Cleanup Job</h2>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                  Scheduled to run daily. Click below to trigger instantly on demand (Demo Step 5).
-                </p>
-              </div>
-            </div>
-
-            <div style={{ background: "#f8fafc", padding: "18px", borderRadius: "8px", border: "1px solid var(--border)", marginBottom: "20px" }}>
-              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "8px" }}>Enforced Policies:</h3>
-              <ul style={{ paddingLeft: "20px", fontSize: "0.88rem", color: "var(--text-main)", lineHeight: "1.8" }}>
-                <li><strong>Term Expiry Policy:</strong> Accounts where <code>term_end &lt; today</code> are automatically disabled.</li>
-                <li><strong>Inactivity Policy:</strong> Accounts with no activity for 60+ days are disabled.</li>
-                <li><strong>Immediate Revocation:</strong> Disabling an account immediately revokes all active SSO sessions and refresh tokens.</li>
-                <li><strong>Retention Safeguard:</strong> Deleted accounts require 30-day disable waiting period before admin deletion approval.</li>
-              </ul>
-            </div>
-
-            <button className="btn btn-primary btn-block" style={{ padding: "12px" }} onClick={handleRunCleanup}>
-              <Play size={18} /> Run Cleanup Job Now
-            </button>
-
-            {cleanupResult && (
-              <div style={{ marginTop: "20px", padding: "16px", background: "var(--success-light)", border: "1px solid rgba(22, 163, 74, 0.2)", borderRadius: "8px" }}>
-                <div style={{ fontWeight: 700, color: "var(--success)", marginBottom: "6px" }}>
-                  ✅ Cleanup Completed Successfully!
-                </div>
-                <div style={{ fontSize: "0.88rem" }}>
-                  Total Accounts Disabled: <strong>{cleanupResult.total_disabled}</strong>
-                </div>
-                {cleanupResult.disabled_users && cleanupResult.disabled_users.length > 0 && (
-                  <ul style={{ marginTop: "8px", paddingLeft: "20px", fontSize: "0.82rem" }}>
-                    {cleanupResult.disabled_users.map((du) => (
-                      <li key={du.id}>
-                        {du.email} (Reason: {du.reason})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      <footer className="footer">
-        Project: <strong>Real Person, Real Access</strong> · Team <strong>Sankalp</strong> · Jadavpur University Hack N Pitch 2026
-      </footer>
     </div>
   );
 }
