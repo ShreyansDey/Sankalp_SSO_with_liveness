@@ -9,7 +9,7 @@ A small, self-hosted SSO for colleges, clubs and small teams.
 - **A real person**: a short camera check (blink or head turn) proves a live person is present. Only pass or fail is stored.
 - **Automatic cleanup**: access ends on its own (term expiry, inactivity, admin "mark as left").
 
-Read these first, in this order: `srs.md` → `architecture.md` → `data-model.md` → `api.md` → `security.md` → `build-plan.md` → `todos.md`.
+Read these first, in this order (in `docs/specs/`): `srs.md` → `architecture.md` → `data-model.md` → `api.md` → `security.md` → `build-plan.md` → `todos.md`.
 
 ## 2. Stack (do not change without asking us)
 Python 3 + FastAPI · PostgreSQL (SQLite allowed only for a quick local start) · SQLAlchemy · JWT (PyJWT) · React (Vite) · MediaPipe Face Mesh in the browser · Two tiny demo apps ("App A", "App B").
@@ -34,10 +34,10 @@ Python 3 + FastAPI · PostgreSQL (SQLite allowed only for a quick local start) �
 Modules expected: `01-auth-core`, `02-sso-flow`, `03-liveness`, `04-admin-dashboard`, `05-cleanup-job`, `06-audit-log`, `07-demo-apps`.
 
 ## 5. Definition of done (per module)
-Code runs → checklist items in `test-checklist.md` pass → module doc written → `todos.md` ticked.
+Code runs → checklist items in `docs/specs/test-checklist.md` pass → module doc written → `docs/specs/todos.md` ticked.
 
 ## 6. Honest limits (never overclaim)
-The check stops photos and replays. Real-time deepfakes are future work. Liveness proves a live person, not which person. See `security.md`.
+The check stops photos and replays. Real-time deepfakes are future work. Liveness proves a live person, not which person. See `docs/specs/security.md`.
 
 ## 7. Style
 Plain English in docs and UI text. Short sentences. No jargon without a one-line explanation.
