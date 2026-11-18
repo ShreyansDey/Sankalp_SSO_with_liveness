@@ -1,7 +1,24 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
-import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, UserCheck, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
+
+/**
+ * ==============================================================================
+ * REAL ACCESS / SANKALP SSO — CENTRAL LOGIN (SIGN IN)
+ * ==============================================================================
+ * In plain words (Layman):
+ *   This is the high-security front door. Students and club members log in here
+ *   with their email and password. Once verified, they proceed to the camera
+ *   check to prove a real, live human is present.
+ *
+ * Technical Role:
+ *   - Matches the '1. Sign in' design component (Main.dc.html)
+ *   - Calls POST /auth/login with { email, password }
+ *   - Preserves OAuth 2.0 query parameters (client_id, redirect_uri, state)
+ *   - Redirects to /liveness on credential validation
+ * ==============================================================================
+ */
 
 export default function Login() {
   const [searchParams] = useSearchParams();
@@ -18,24 +35,27 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
-  // Check if session already exists
+  // Check if an active SSO session already exists
   useEffect(() => {
     async function checkSession() {
       try {
         const me = await apiRequest("/me");
         if (me && me.status === "active") {
           if (clientId && redirectUri) {
-            // Already active SSO session -> bounce to /authorize to issue code and redirect back!
+            // Already authenticated -> issue code and redirect back to client app
             window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
             return;
           }
           if (me.role === "admin") {
             navigate("/admin");
             return;
+          } else {
+            navigate("/clubs");
+            return;
           }
         }
       } catch (e) {
-        // No active session
+        // No session exists, proceed to login form
       } finally {
         setCheckingSession(false);
       }
@@ -55,7 +75,7 @@ export default function Login() {
       });
 
       if (res.next === "liveness") {
-        // Needs camera liveness check
+        // Proceed to liveness challenge with preserved redirect parameters
         const params = new URLSearchParams();
         params.set("user_id", res.user_id);
         params.set("email", res.email);
@@ -70,7 +90,7 @@ export default function Login() {
         } else if (res.user && res.user.role === "admin") {
           navigate("/admin");
         } else {
-          navigate("/admin");
+          navigate("/clubs");
         }
       }
     } catch (err) {
@@ -94,114 +114,296 @@ export default function Login() {
 
   if (checkingSession) {
     return (
-      <div className="auth-wrapper" style={{ textAlign: "center", marginTop: "100px" }}>
-        <p style={{ color: "var(--text-muted)" }}>Checking active SSO session...</p>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F3EFE7" }}>
+        <p style={{ color: "#5A6270", fontSize: "15px" }}>Verifying active session...</p>
       </div>
     );
   }
 
   return (
-    <div className="auth-wrapper">
-      <div className="card">
-        <div className="card-header" style={{ textAlign: "center" }}>
-          <div style={{ display: "inline-flex", padding: "12px", background: "var(--primary-light)", borderRadius: "12px", color: "var(--primary)", marginBottom: "12px" }}>
-            <ShieldCheck size={32} />
-          </div>
-          <h1 className="card-title">Sign In to Sankalp SSO</h1>
-          <p className="card-subtitle">
-            {clientId ? `Authenticating for ${clientId}` : "Single Sign-On with verified digital identity"}
-          </p>
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      flexWrap: "wrap",
+      fontFamily: "'Inter', system-ui, sans-serif",
+      color: "#12171E",
+      background: "#F3EFE7"
+    }}>
+
+      {/* LEFT: Editorial Brand Panel */}
+      <div style={{
+        flex: "1 1 540px",
+        minWidth: "320px",
+        background: "#12171E",
+        color: "#E9E4D8",
+        boxSizing: "border-box",
+        padding: "48px 64px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        gap: "48px"
+      }}>
+        {/* Brand Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="16" cy="16" r="14" stroke="#D9822B" strokeWidth="2"></circle>
+            <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
+            <path d="M2 16h6M24 16h6" stroke="#D9822B" strokeWidth="2" strokeLinecap="round"></path>
+          </svg>
+          <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "24px", fontWeight: 600, letterSpacing: "0.2px" }}>
+            Real Access
+          </span>
         </div>
 
-        {error && (
-          <div className="alert alert-danger">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <div>{error}</div>
+        {/* Brand Narrative & Sample Access Passes */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "36px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ fontSize: "12px", fontWeight: 600, letterSpacing: "2.4px", color: "#D9822B" }}>
+              SELF-HOSTED SIGN-IN
+            </div>
+            <h1 style={{
+              margin: 0,
+              fontFamily: "'Newsreader', Georgia, serif",
+              fontWeight: 500,
+              fontSize: "clamp(38px, 5vw, 54px)",
+              lineHeight: 1.1,
+              color: "#F5F1E8"
+            }}>
+              One login for every club.<br />
+              <span style={{ fontStyle: "italic", color: "#D8D2C4" }}>Closed the day you leave.</span>
+            </h1>
           </div>
-        )}
 
-        <form onSubmit={handleLogin}>
-          <div className="form-group">
-            <label className="form-label">Email Address</label>
-            <div style={{ position: "relative" }}>
+          {/* Sample passes showing active vs revoked access */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "460px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
+                RS
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Robotics Society</div>
+                <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Member until 30 Jun 2027</div>
+              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "4px 12px" }}>
+                Active
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px", marginLeft: "20px" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
+                AI
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Coding & AI Club</div>
+                <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Member until 31 Mar 2027</div>
+              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "4px 12px" }}>
+                Active
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px", marginLeft: "40px" }}>
+              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
+                RK
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Photography Club</div>
+                <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Left in June</div>
+              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#F2A98F", background: "#3A1D17", borderRadius: "999px", padding: "4px 12px" }}>
+                Access ended
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Privacy Note */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", maxWidth: "460px" }}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ flex: "none", marginTop: "2px" }}>
+            <path d="M10 2l6 2.5v4.7c0 3.9-2.5 7-6 8.3-3.5-1.3-6-4.4-6-8.3V4.5L10 2z" stroke="#A9B0BA" strokeWidth="1.5" strokeLinejoin="round"></path>
+          </svg>
+          <p style={{ margin: 0, fontSize: "13.5px", lineHeight: "1.55", color: "#A9B0BA" }}>
+            Your face video stays entirely in your browser. Only pass or fail is stored on our server.
+          </p>
+        </div>
+      </div>
+
+      {/* RIGHT: Sign-in Form */}
+      <div style={{
+        flex: "1 1 460px",
+        minWidth: "320px",
+        boxSizing: "border-box",
+        padding: "48px 56px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        gap: "40px"
+      }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", fontSize: "14px", color: "#5A6270" }}>
+          <span>Have an invite?&nbsp;<Link to="/signup" style={{ fontWeight: 600, color: "#12171E" }}>Set up your account</Link></span>
+        </div>
+
+        <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "28px" }}>
+          
+          {/* Step indicator */}
+          <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", alignItems: "center", gap: "12px", fontSize: "13px", fontWeight: 500 }}>
+            <li style={{ display: "flex", alignItems: "center", gap: "8px", color: "#12171E" }}>
+              <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: "#12171E", color: "#F3EFE7", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+                1
+              </span>
+              Sign in
+            </li>
+            <li aria-hidden="true" style={{ width: "32px", height: "1px", background: "#B9B2A3" }}></li>
+            <li style={{ display: "flex", alignItems: "center", gap: "8px", color: "#5A6270" }}>
+              <span style={{ width: "22px", height: "22px", borderRadius: "50%", border: "1px solid #8C8574", color: "#5A6270", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+                2
+              </span>
+              Camera check
+            </li>
+          </ol>
+
+          {/* Heading */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <h2 style={{ margin: 0, fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "38px", lineHeight: 1.1 }}>
+              Welcome
+            </h2>
+            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.5", color: "#5A6270" }}>
+              Sign in with the email your administrator invited.
+            </p>
+          </div>
+
+          {error && (
+            <div style={{
+              background: "#F6DDD4",
+              border: "1px solid #9B3A22",
+              borderRadius: "8px",
+              padding: "12px 16px",
+              color: "#9B3A22",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}>
+              <AlertCircle size={18} style={{ flexShrink: 0 }} />
+              <div>{error}</div>
+            </div>
+          )}
+
+          {/* Form */}
+          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label htmlFor="email" style={{ fontSize: "13.5px", fontWeight: 500 }}>Email Address</label>
               <input
+                id="email"
                 type="email"
-                className="form-input"
-                placeholder="name@organization.edu"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@college.edu"
+                className="input-editorial"
               />
             </div>
-          </div>
 
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPassword ? "text" : "password"}
-                className="form-input"
-                style={{ paddingRight: "42px" }}
-                placeholder="••••••••"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: "absolute",
-                  right: "10px",
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  background: "none",
-                  border: "none",
-                  padding: "4px",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center"
-                }}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                title={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label htmlFor="password" style={{ fontSize: "13.5px", fontWeight: 500 }}>Password</label>
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Your password"
+                  className="input-editorial"
+                  style={{ paddingRight: "46px" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: "absolute",
+                    right: "10px",
+                    background: "none",
+                    border: "none",
+                    padding: "4px",
+                    color: "#5A6270",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center"
+                  }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-dark"
+              style={{ width: "100%", marginTop: "8px" }}
+            >
+              {loading ? "Verifying..." : "Continue"}
+              <ArrowRight size={16} />
+            </button>
+          </form>
+
+          {/* Demo Quick-Fill Bar */}
+          <div style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            paddingTop: "16px",
+            borderTop: "1px solid #DDD6C7"
+          }}>
+            <button
+              type="button"
+              onClick={() => fillCredentials("rahul@club.edu", "RahulPassword123!")}
+              style={{
+                fontSize: "12px",
+                padding: "6px 12px",
+                background: "#EBE5D8",
+                border: "1px solid #DDD6C7",
+                borderRadius: "6px",
+                color: "#12171E"
+              }}
+            >
+              👤 Rahul (Member)
+            </button>
+            <button
+              type="button"
+              onClick={() => fillCredentials("admin@jadavpur.edu", "AdminPassword123!")}
+              style={{
+                fontSize: "12px",
+                padding: "6px 12px",
+                background: "#EBE5D8",
+                border: "1px solid #DDD6C7",
+                borderRadius: "6px",
+                color: "#12171E"
+              }}
+            >
+              🛡️ Admin
+            </button>
+            <button
+              type="button"
+              onClick={() => fillCredentials("expired@club.edu", "ExpiredPassword123!")}
+              style={{
+                fontSize: "12px",
+                padding: "6px 12px",
+                background: "#EBE5D8",
+                border: "1px solid #DDD6C7",
+                borderRadius: "6px",
+                color: "#12171E"
+              }}
+            >
+              ⏳ Expired User
+            </button>
           </div>
-
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            {loading ? "Verifying..." : "Continue to Liveness Check"} <ArrowRight size={16} />
-          </button>
-        </form>
-
-        <div className="quick-fill-bar">
-          <button
-            type="button"
-            className="quick-btn"
-            onClick={() => fillCredentials("rahul@club.edu", "RahulPassword123!")}
-          >
-            👤 Demo Rahul
-          </button>
-          <button
-            type="button"
-            className="quick-btn"
-            onClick={() => fillCredentials("admin@jadavpur.edu", "AdminPassword123!")}
-          >
-            🛡️ Demo Admin
-          </button>
-          <button
-            type="button"
-            className="quick-btn"
-            onClick={() => fillCredentials("expired@club.edu", "ExpiredPassword123!")}
-          >
-            ⏳ Expired User
-          </button>
         </div>
 
-        <div style={{ marginTop: "20px", textAlign: "center", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-          Have an invite? <Link to="/signup" style={{ color: "var(--primary)", fontWeight: 600 }}>Accept Invite</Link>
+        <div style={{ fontSize: "12px", color: "#5A6270", textAlign: "center" }}>
+          Sankalp SSO &bull; Self-hosted for university clubs and research teams
         </div>
       </div>
     </div>
