@@ -1,15 +1,16 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.orm import Session
 
 from app.config import FRONTEND_ORIGIN, APP_A_ORIGIN, APP_B_ORIGIN
-from app.database import engine, Base, SessionLocal
+from app.database import engine, Base, SessionLocal, get_db
 from app.routes import auth, liveness, sso, admin
 from app.jobs.cleanup import run_cleanup_job
 
@@ -60,21 +61,28 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
+# ==============================================================================
+# Cross-Origin Resource Sharing (CORS) Configuration
+# In plain words: Web browsers block JavaScript from one website/port talking to
+# another website/port unless explicitly permitted. Here we allow the Central
+# Login portal (5173) and our 5 Connected Campus Clubs (5174 through 5178) to
+# communicate securely with this authentication server.
+# ==============================================================================
 allowed_origins = [
     FRONTEND_ORIGIN,
-    APP_A_ORIGIN,
-    APP_B_ORIGIN,
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:5175",
-    "http://localhost:8000"
+    # 5 Connected University Clubs:
+    "http://localhost:5174", "http://127.0.0.1:5174",  # Club 1: Photography Club
+    "http://localhost:5175", "http://127.0.0.1:5175",  # Club 2: Robotics Lab
+    "http://localhost:5176", "http://127.0.0.1:5176",  # Club 3: Coding & AI Club
+    "http://localhost:5177", "http://127.0.0.1:5177",  # Club 4: Chess & Mind Sports
+    "http://localhost:5178", "http://127.0.0.1:5178",  # Club 5: Athletics & Sports
+    "http://localhost:8000", "http://127.0.0.1:8000"   # Backend API
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_credentials=True,  # Crucial: allows HttpOnly session cookies to be sent across origins
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -105,11 +113,18 @@ app.include_router(liveness.router)
 app.include_router(sso.router)
 app.include_router(admin.router)
 
+@app.get("/me")
+def get_me_alias(request: Request, db: Session = Depends(get_db)):
+    """Direct /me endpoint defined in docs/specs/api.md."""
+    return auth.get_me(request=request, db=db)
+
 @app.get("/")
+@app.get("/health")
 def health_check():
     """Healthcheck and system status."""
     return {
         "system": "Sankalp Real Person, Real Access SSO",
         "status": "healthy",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "database": "connected"
     }
