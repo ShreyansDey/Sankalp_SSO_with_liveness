@@ -94,28 +94,57 @@ def seed():
             db.add(inactive_user)
             print("   ✅ Created Inactive Member: inactive@club.edu / InactivePassword123!")
 
-        # 5. Products: App A and App B
-        prod_a = db.query(Product).filter(Product.client_id == "app-a").first()
-        if not prod_a:
-            prod_a = Product(
-                name="App A — Photography Club",
-                client_id="app-a",
-                client_secret_hash=hash_token("secret-app-a-key-2026"),
-                redirect_uri="http://localhost:5174/callback"
-            )
-            db.add(prod_a)
-            print("   ✅ Registered Product: App A (app-a)")
+        # 5. Connected University Products: 5 Active Clubs
+        # Each club represents an independent university portal with its own client ID,
+        # secret hash, and registered redirect URL. Only registered redirect URLs are honored.
+        clubs_data = [
+            {
+                "name": "Photography Club",
+                "client_id": "app-a",
+                "secret": "secret-app-a-key-2026",
+                "redirect_uri": "http://localhost:5174/callback"
+            },
+            {
+                "name": "Robotics Lab",
+                "client_id": "app-b",
+                "secret": "secret-app-b-key-2026",
+                "redirect_uri": "http://localhost:5175/callback"
+            },
+            {
+                "name": "Coding & AI Club",
+                "client_id": "app-c",
+                "secret": "secret-app-c-key-2026",
+                "redirect_uri": "http://localhost:5176/callback"
+            },
+            {
+                "name": "Chess & Mind Sports",
+                "client_id": "app-d",
+                "secret": "secret-app-d-key-2026",
+                "redirect_uri": "http://localhost:5177/callback"
+            },
+            {
+                "name": "Athletics & Sports",
+                "client_id": "app-e",
+                "secret": "secret-app-e-key-2026",
+                "redirect_uri": "http://localhost:5178/callback"
+            }
+        ]
 
-        prod_b = db.query(Product).filter(Product.client_id == "app-b").first()
-        if not prod_b:
-            prod_b = Product(
-                name="App B — Robotics Lab",
-                client_id="app-b",
-                client_secret_hash=hash_token("secret-app-b-key-2026"),
-                redirect_uri="http://localhost:5175/callback"
-            )
-            db.add(prod_b)
-            print("   ✅ Registered Product: App B (app-b)")
+        for club in clubs_data:
+            existing = db.query(Product).filter(Product.client_id == club["client_id"]).first()
+            if not existing:
+                prod = Product(
+                    name=club["name"],
+                    client_id=club["client_id"],
+                    client_secret_hash=hash_token(club["secret"]),
+                    redirect_uri=club["redirect_uri"]
+                )
+                db.add(prod)
+                print(f"   ✅ Registered Product: {club['name']} ({club['client_id']} on {club['redirect_uri']})")
+            else:
+                existing.name = club["name"]
+                existing.redirect_uri = club["redirect_uri"]
+                print(f"   ℹ️ Product already registered: {club['name']} ({club['client_id']})")
 
         # 6. Sample Invite Token
         sample_invite = db.query(Invite).filter(Invite.email == "newstudent@jadavpur.edu").first()
