@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 os.environ["ENABLE_SCHEDULER"] = "false"
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 # Add backend directory to sys.path
 backend_dir = Path(__file__).resolve().parent.parent
