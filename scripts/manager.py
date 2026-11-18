@@ -24,7 +24,10 @@ PORTS = {
     "Backend (FastAPI)": 8000,
     "Central Login (Vite)": 5173,
     "Demo App A (Photo Club)": 5174,
-    "Demo App B (Robotics Lab)": 5175
+    "Demo App B (Robotics Lab)": 5175,
+    "Demo App C (Coding & AI)": 5176,
+    "Demo App D (Chess Club)": 5177,
+    "Demo App E (Athletics Club)": 5178
 }
 
 def ensure_log_dir():
@@ -158,8 +161,8 @@ def start(foreground=False):
     )
     pids["backend"] = p_backend.pid
 
-    # 2. Start Demo Apps (Ports 5174 & 5175)
-    print("⚡ Launching Connected Demo Apps (Ports 5174 & 5175)...")
+    # 2. Start Demo Apps (Ports 5174 through 5178)
+    print("⚡ Launching 5 Connected Campus Clubs (Ports 5174 through 5178)...")
     p_demos = subprocess.Popen(
         [sys.executable, "serve_demo_apps.py"],
         cwd=str(ROOT_DIR / "demo-apps"),
