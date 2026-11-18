@@ -212,6 +212,43 @@ docker-compose up --build
 
 ---
 
+## Project Structure & Documentation Index
+
+All core project specifications and detailed module docs are cleanly organized:
+
+```
+Sankalp_SSO/
+├── docs/
+│   ├── specs/                   # System Specifications & Guidelines
+│   │   ├── srs.md               # Software Requirements Specification (M1-M8, FR1-FR7)
+│   │   ├── architecture.md      # System Architecture & Token Lifecycle
+│   │   ├── data-model.md        # Database Schema & Audit Event Catalog
+│   │   ├── api.md               # REST & OAuth 2.0 API Endpoints
+│   │   ├── security.md          # Threat Model & Privacy Guarantees
+│   │   ├── build-plan.md        # Step-by-Step Implementation Roadmap
+│   │   ├── stack-and-setup.md   # Local Development Setup Guide
+│   │   ├── demo-script.md       # 4-Minute Presentation Walkthrough
+│   │   ├── test-checklist.md    # Pre-Flight Verification Checklist
+│   │   └── todos.md             # Project Milestones & Completion Tracking
+│   └── modules/                 # Technical Module Documentation (with full code & explanations)
+│       ├── 00-index.md          # Status Index of all Modules
+│       ├── 01-auth-core.md      # Password Hashing, Sessions & Invites
+│       ├── 02-sso-flow.md       # OAuth 2.0 Auth Code & Token Exchange
+│       ├── 03-liveness.md       # MediaPipe Face Mesh Challenge & Result Verification
+│       ├── 04-admin-dashboard.md# Admin Controls & Instant "Mark as Left"
+│       ├── 05-cleanup-job.md    # Automated APScheduler Lifecycle Cleanup
+│       ├── 06-audit-log.md      # Security Audit Trail
+│       └── 07-demo-apps.md      # 5 Connected University Campus Clubs
+├── backend/                     # FastAPI Backend Server (Port 8000)
+├── frontend/                    # Central Login & Clubs Hub (Port 5173, React + Vite)
+├── demo-apps/                   # 5 Connected University Portals (Ports 5174 - 5178)
+├── scripts/                     # Start/Stop Automation & Service Manager
+├── agents.md                    # Assistant & Developer Working Rules
+└── README.md                    # Project Overview
+```
+
+---
+
 ## Pre-Seeded Demo Credentials
 
 | Role | Email | Password | Purpose |
