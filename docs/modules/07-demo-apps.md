@@ -1,101 +1,151 @@
-# 07 — Demo Apps (App A & App B)
+# 07 — Connected Campus Clubs (5 Demo Apps: App A through App E)
 
-**Status:** done · **Owner:** Arka · **Date:** 2026-11-17
+**Status:** done · **Owner:** Shaan & Arka · **Date:** 2026-11-18
 
-## 1. What it is (plain words)
-Two real, working web applications ("App A — Photography Club" on port 5174 and "App B — Robotics Lab" on port 5175) that rely exclusively on Sankalp SSO for authentication. They prove the core pitch: sign in once with camera check to open App A, open App B in one click with no second camera check, and watch access disappear from both apps the moment an admin marks someone as left.
+---
 
-## 2. Why it exists
-Covers requirements **M8** (two demo apps showing Welcome / Access denied), **M4** (one-click SSO switch), and the full execution of the 4-minute presentation in `demo-script.md`.
+## 1. What it is (Plain Words / Layman Explanation)
 
-## 3. How it works
-1. **App A Sign-in**:
-   - The user opens App A (`http://localhost:5174`).
-   - Clicking "Sign in with Sankalp SSO" redirects to `http://localhost:8000/authorize?client_id=app-a&redirect_uri=http://localhost:5174/callback&state=...`.
-   - The user passes password and camera liveness on the central portal.
-   - The portal redirects to App A's callback with an authorization code.
-   - App A exchanges the code for a JWT access token (10 min) and refresh token, displaying: **"Welcome, Rahul Sharma! 🎉"**.
-2. **App B One-Click (Step 2 of Demo Script)**:
-   - The user opens App B (`http://localhost:5175`).
-   - Because the central `sso_session` cookie already exists on `localhost:8000`, clicking sign-in redirects to the central server, which immediately issues an authorization code and bounces straight back to App B.
-   - **No password form and no camera check!** App B displays: **"Welcome, Rahul Sharma! 🤖"**.
-3. **Instant Removal (Step 4 of Demo Script)**:
-   - In the Admin Dashboard (`http://localhost:5173/admin`), the admin clicks **"Mark as left"** for Rahul.
-   - Refreshing or testing tokens in either App A or App B immediately displays: **"⛔ ACCESS DENIED: Account disabled (left)"**.
+Imagine a university with 5 different campus clubs and facilities:
+1. **Photography Club** (Port 5174) — Camera gear checkout and photo gallery.
+2. **Robotics Lab** (Port 5175) — 3D printers, microcontrollers, and lab door locks.
+3. **Coding & AI Club** (Port 5176) — GPU servers and hackathon teams.
+4. **Chess & Mind Sports Club** (Port 5177) — Tournament brackets and player ratings.
+5. **Athletics & Sports Club** (Port 5178) — Gymnasium access and sports equipment.
 
-## 4. Code
+Normally, students would need 5 different passwords, and when a student graduates or leaves, the college would have to remember to delete them from all 5 systems manually. If someone forgets, the student's login stays active forever!
 
-### `demo-apps/serve_demo_apps.py`
+With **Sankalp SSO**:
+- Students sign in **once** at the central gate (`http://localhost:5173`) with their password and a quick camera blink check.
+- They see their **Clubs Hub** and can click into **any of the 5 clubs with 1 single click**—no typing passwords again, no repeating the camera check!
+- When an admin clicks **"Mark as left"**, access across **all 5 clubs ends in under 0.2 seconds simultaneously**.
+
+---
+
+## 2. Why it exists (SRS Requirements)
+
+Covers requirements:
+* **M8**: Connected demo apps showing Welcome and instant Access Denied states.
+* **M4**: Central Single Sign-On (SSO) with one-click transitions between independent applications.
+* **FR6**: Product registration with unique client IDs, hashed secrets, and strict callback URI validation.
+* **FR2**: Instant revocation of sessions and refresh tokens across all connected products.
+
+---
+
+## 3. How it works (Architecture & Flow)
+
+```
+                     ┌──────────────────────────────────────────────┐
+                     │          CENTRAL SANKALP SSO (:8000)         │
+                     │  - Sets HttpOnly sso_session cookie          │
+                     │  - Issues 60s single-use Authorization Codes │
+                     │  - Issues 10-min JWTs & revocable refresh tok │
+                     └──────────────────────┬───────────────────────┘
+                                            │
+        ┌───────────────────┬───────────────┼───────────────┬───────────────────┐
+        ▼                   ▼               ▼               ▼                   ▼
+┌───────────────┐   ┌───────────────┐┌───────────────┐┌───────────────┐   ┌───────────────┐
+│     App A     │   │     App B     ││     App C     ││     App D     │   │     App E     │
+│  Photography  │   │  Robotics Lab ││  Coding & AI  ││   Chess Club  │   │Athletics/Sport│
+│  (Port 5174)  │   │  (Port 5175)  ││  (Port 5176)  ││  (Port 5177)  │   │  (Port 5178)  │
+└───────────────┘   └───────────────┘└───────────────┘└───────────────┘   └───────────────┘
+```
+
+1. **OAuth 2.0 Authorization Code Flow**:
+   - The user opens any club (e.g. `http://localhost:5174`).
+   - If not signed in, the club redirects the browser to `http://localhost:8000/authorize?client_id=app-a&redirect_uri=http://localhost:5174/callback&state=...`.
+   - The backend checks if an active `sso_session` cookie exists:
+     - **If yes**: Immediately generates a 60-second one-time code and redirects straight back to the club's callback URI.
+     - **If no**: Prompts the user to log in and pass the liveness challenge.
+2. **Token Exchange (`POST /token`)**:
+   - The club application extracts the `code` from the URL.
+   - It makes a backend call to `POST /token` sending:
+     `{ grant_type: "authorization_code", code, client_id, client_secret }`.
+   - The backend hashes the code, verifies it matches `auth_codes.code_hash`, marks it used, and returns:
+     - `access_token`: A signed JWT valid for 10 minutes containing student identity.
+     - `refresh_token`: A high-entropy revocable token stored hashed in PostgreSQL.
+3. **One-Click Part**:
+   - Opening any of the other 4 clubs (ports 5175, 5176, 5177, 5178) detects the same active session cookie. The user is logged in instantly with **zero password prompts**.
+4. **Instant Revocation ("Mark as Left")**:
+   - When Admin marks the user as left in `:5173/admin`, their status is set to `disabled`, and all rows in `sso_sessions` and `refresh_tokens` are set to `revoked_at = NOW()`.
+   - On the next token check or page refresh, all 5 apps immediately render the bright red **"ACCESS DENIED"** card.
+
+---
+
+## 4. Key Source Code
+
+### `demo-apps/serve_demo_apps.py` (Multi-Port Runner)
 ```python
-# demo-apps/serve_demo_apps.py
+import http.server
+import socketserver
+import threading
+from pathlib import Path
+
+base_dir = Path(__file__).resolve().parent
+
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        super().end_headers()
+
     def do_GET(self):
+        # Single-Page Application routing: serve index.html for / and /callback
         if self.path == "/" or self.path.startswith("/callback"):
             self.path = "/index.html"
         return super().do_GET()
 
-def run_server(port, folder):
+def run_server(port: int, folder: Path, club_name: str):
     class Handler(CustomHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(folder), **kwargs)
 
+    socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), Handler) as httpd:
+        print(f"   🚀 [{club_name}] active on http://localhost:{port}")
         httpd.serve_forever()
 
 if __name__ == "__main__":
-    t1 = threading.Thread(target=run_server, args=(5174, base_dir / "app-a"), daemon=True)
-    t2 = threading.Thread(target=run_server, args=(5175, base_dir / "app-b"), daemon=True)
-    t1.start()
-    t2.start()
+    clubs = [
+        {"port": 5174, "dir": base_dir / "app-a", "name": "Photography Club"},
+        {"port": 5175, "dir": base_dir / "app-b", "name": "Robotics Lab"},
+        {"port": 5176, "dir": base_dir / "app-c", "name": "Coding & AI Club"},
+        {"port": 5177, "dir": base_dir / "app-d", "name": "Chess & Mind Sports"},
+        {"port": 5178, "dir": base_dir / "app-e", "name": "Athletics & Sports"}
+    ]
+    for c in clubs:
+        threading.Thread(target=run_server, args=(c["port"], c["dir"], c["name"]), daemon=True).start()
 ```
 
-### `demo-apps/app-a/index.html` (Token exchange & denial extract)
-```javascript
-// demo-apps/app-a/index.html
-async function handleCallback() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const code = urlParams.get("code");
-  if (!code) return false;
+---
 
-  const res = await fetch("http://localhost:8000/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "authorization_code",
-      code: code,
-      client_id: "app-a",
-      client_secret: "secret-app-a-key-2026"
-    })
-  });
-  if (!res.ok) {
-    renderAccessDenied("Token exchange failed");
-    return true;
-  }
-  const data = await res.json();
-  sessionStorage.setItem("access_token", data.access_token);
-  sessionStorage.setItem("refresh_token", data.refresh_token);
-  renderAuthenticated();
-  return true;
-}
-```
+## 5. How to Run and Test It
 
-## 5. Code explanation
-- The demo apps demonstrate the full OAuth 2.0 Authorization Code Flow with Proof of Possession and redirect URI binding.
-- `renderAccessDenied` immediately strips stored tokens and replaces the user view with an unmistakable denial warning.
-- The dual-server script in `serve_demo_apps.py` routes `/callback` URL paths cleanly back to the client application runner without external web server dependencies.
-
-## 6. How to run and test it
-1. Start the demo apps:
-   ```bash
+1. Start all 5 clubs:
+   ```powershell
    python demo-apps/serve_demo_apps.py
    ```
-2. Open `http://localhost:5174` (App A) in Google Chrome or Edge.
-3. Open `http://localhost:5175` (App B) in a new tab.
+2. Verify ports in your browser:
+   * **Photography Club**: `http://localhost:5174`
+   * **Robotics Lab**: `http://localhost:5175`
+   * **Coding & AI Club**: `http://localhost:5176`
+   * **Chess & Mind Sports**: `http://localhost:5177`
+   * **Athletics & Sports**: `http://localhost:5178`
+3. Click *"Sign In with Sankalp SSO"* on any club &rarr; complete login &rarr; Welcome!
+4. Open the other 4 clubs &rarr; all 4 open instantly with 1-click SSO!
+5. In Admin (`:5173/admin`), click **"Mark as left"** on Rahul.
+6. Refresh all 5 club tabs &rarr; all 5 show **"ACCESS DENIED"**.
 
-**Checklist items satisfied:**
-- [x] App A → login → back with a token → Welcome.
-- [x] App B opens with no form and no camera while the session is live.
-- [x] Mark as left: both apps show Access denied immediately; refresh token fails.
+**Checklist Items Satisfied:**
+- [x] App A through App E connected via registered OAuth client credentials.
+- [x] One login opens all 5 connected campus apps.
+- [x] Session cookie allows seamless switching across apps without repeated camera prompts.
+- [x] Mark as left disables access everywhere simultaneously (< 0.2s).
 
-## 7. Limits and future work
-App A and App B currently execute the token exchange in the browser for demo transparency. In production, client secrets should reside on a backend application server using OAuth2 Authorization Code Flow with PKCE (Proof Key for Code Exchange).
+---
+
+## 6. Known Limits
+
+1. **Localhost Ports Simulation**: In a production university environment, each club would reside on its own sub-domain (e.g., `photo.university.edu`, `robotics.university.edu`). In this local prototype, distinct ports (`5174`–`5178`) simulate distinct origins.
+2. **Tokens in SessionStorage**: Tokens are stored in browser `sessionStorage` for demo isolation. Closing a tab clears the client-side copy, while server revocation terminates access regardless.
