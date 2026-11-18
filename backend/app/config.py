@@ -18,6 +18,8 @@ if raw_db.startswith("sqlite:///./"):
 elif raw_db == "sqlite:///sankalp.db":
     canonical_db = (base_dir.parent / "sankalp.db").resolve().as_posix()
     DATABASE_URL = f"sqlite:///{canonical_db}"
+elif raw_db.startswith("postgresql://"):
+    DATABASE_URL = raw_db.replace("postgresql://", "postgresql+psycopg2://", 1)
 else:
     DATABASE_URL = raw_db
 JWT_SECRET = os.getenv("JWT_SECRET", "sankalp-dev-super-secret-key-change-in-production-must-be-long-and-random-32bytes")
