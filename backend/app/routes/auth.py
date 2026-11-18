@@ -151,7 +151,52 @@ def login(
             }
         }
 
-    # No existing session: user passed password, now requires liveness check
+    # Admin accounts bypass camera liveness check (liveness is strictly for members/students)
+    if user.role == "admin":
+        user.last_active_at = datetime.utcnow()
+        session_expires = datetime.utcnow() + timedelta(hours=SSO_SESSION_HOURS)
+        sso_sess = SsoSession(
+            user_id=user.id,
+            created_at=datetime.utcnow(),
+            expires_at=session_expires,
+            revoked_at=None,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(sso_sess)
+        db.commit()
+        db.refresh(sso_sess)
+
+        response.set_cookie(
+            key="sso_session",
+            value=sso_sess.id,
+            httponly=True,
+            samesite="lax",
+            secure=IS_PRODUCTION,
+            max_age=SSO_SESSION_HOURS * 3600,
+            path="/"
+        )
+
+        log_audit(
+            db,
+            action="login_ok",
+            actor_id=user.id,
+            target_id=user.id,
+            detail={"session_id": sso_sess.id, "role": "admin", "via": "password_direct"}
+        )
+
+        return {
+            "status": "ok",
+            "next": "authenticated",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "name": user.name,
+                "role": user.role
+            }
+        }
+
+    # Standard member/student: requires 3-step liveness camera check
     return {
         "status": "ok",
         "next": "liveness",
