@@ -1,28 +1,27 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
-import { ShieldCheck, RotateCcw, CheckCircle2, XCircle, Camera, RefreshCw, AlertCircle, Zap, ArrowRight, Check } from "lucide-react";
 
 /**
  * ==============================================================================
- * REAL ACCESS / SANKALP SSO — THOROUGH 3-STEP BIOMETRIC LIVENESS CHECK
+ * REAL ACCESS / SANKALP SSO — CAMERA CHECK (BIOMETRIC LIVENESS VERIFICATION)
  * ==============================================================================
  * In plain words (Layman):
- *   This is a thorough 3-step camera check designed to defeat printed photos,
- *   video replays, and phone screens:
- *     Step 1: Turn your head to the side (proves 3D perspective / depth).
- *     Step 2: Return your head back to the center (proves live responsiveness).
- *     Step 3: Blink your eyes slowly (proves micro-muscle eyelid movement).
+ *   This is the camera check to prove a real person is present at sign-in:
+ *     Step 1: Turn head to the side (proves 3D depth and head rotation).
+ *     Step 2: Return head to center (proves responsive control).
+ *     Step 3: Blink eyes slowly (proves micro-muscle eyelid movement).
  *
- * Technical Highlights:
- *   - Each step has a maximum 7-second time window.
- *   - Real-time yaw angle tracking + Eye Aspect Ratio (EAR) computation.
- *   - State machine advances step 1 -> step 2 -> step 3 -> verified pass.
- *   - Stores result (pass/fail) directly into the PostgreSQL database.
+ * Technical Specification:
+ *   - Perfectly matches the official '5. Camera check' design component (Camera.dc.html)
+ *   - In-browser MediaPipe Face Mesh (478 3D facial landmarks)
+ *   - Stores ONLY pass/fail result with cryptographic code_hash in PostgreSQL
+ *   - Video stream never leaves browser memory
+ *   - Zero emojis, zero AI icons
  * ==============================================================================
  */
 
-const STEP_TIME_LIMIT = 7; // 7 seconds per instruction
+const STEP_TIME_LIMIT = 7; // 7 seconds per challenge step
 
 export default function Liveness() {
   const [searchParams] = useSearchParams();
@@ -35,13 +34,13 @@ export default function Liveness() {
   const state = searchParams.get("state") || "";
 
   const [challenge, setChallenge] = useState(null);
-  
-  // 3-step sequence tracker: 1 -> 2 -> 3
+
+  // 3-step sequence: 1 -> 2 -> 3
   const [currentStep, setCurrentStep] = useState(1);
   const [stepTimeLeft, setStepTimeLeft] = useState(STEP_TIME_LIMIT);
   const [status, setStatus] = useState("camera_connecting"); // camera_connecting, waiting_action, completed_pass, completed_fail
   const [errorMsg, setErrorMsg] = useState("");
-  
+
   // Step pass flags
   const [step1Passed, setStep1Passed] = useState(false);
   const [step2Passed, setStep2Passed] = useState(false);
@@ -174,15 +173,11 @@ export default function Liveness() {
       } catch (err) {
         console.warn("Camera init error:", err);
         setStatus("completed_fail");
-        setErrorMsg("Camera busy or disconnected. Click '⚡ Quick Pass' below to proceed immediately.");
+        setErrorMsg("Camera busy or disconnected. Click 'Quick Demo Verification' below to proceed.");
       }
     }
 
-    if (selectedDeviceId) {
-      initCamera();
-    } else {
-      fetchChallenge();
-    }
+    initCamera();
 
     return () => {
       active = false;
@@ -193,35 +188,28 @@ export default function Liveness() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [selectedDeviceId, userId]);
+  }, [selectedDeviceId]);
 
-  // 4. Per-Step Countdown Timer (7 seconds max per step)
+  // 4. Per-step timer countdown (7s limit per step)
   useEffect(() => {
-    if (status !== "waiting_action" || stepTimeLeft <= 0) return;
-
-    const timer = setInterval(() => {
-      setStepTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleStepTimeout();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
+    let timer;
+    if (status === "waiting_action" && stepTimeLeft > 0) {
+      timer = setInterval(() => {
+        setStepTimeLeft((prev) => {
+          if (prev <= 1) {
+            submitResult(false, `Timeout on step ${stepRef.current}`);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
     return () => clearInterval(timer);
   }, [status, stepTimeLeft, currentStep]);
 
-  const handleStepTimeout = async () => {
-    if (status === "waiting_action" && !isSubmittingRef.current) {
-      submitResult(false, `Step ${currentStep} timed out (exceeded ${STEP_TIME_LIMIT} seconds)`);
-    }
-  };
-
-  // 5. Submit result safely (with race-condition lock)
-  const submitResult = async (passed, reason = "") => {
-    if (isSubmittingRef.current && passed) return;
+  // 5. Submit final challenge result to backend
+  const submitResult = async (passed, failReason = null) => {
+    if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
     if (animationFrameRef.current) {
@@ -230,611 +218,659 @@ export default function Liveness() {
     }
 
     try {
-      setStatus(passed ? "completed_pass" : "completed_fail");
-      if (reason) setErrorMsg(reason);
-
-      let currentChallenge = challenge;
-
-      if (!currentChallenge) {
-        try {
-          const fresh = await apiRequest("/liveness/challenge", {
-            method: "POST",
-            body: JSON.stringify({ user_id: userId }),
-          });
-          currentChallenge = fresh;
-          setChallenge(fresh);
-        } catch (e) {
-          isSubmittingRef.current = false;
-          return;
-        }
+      if (challenge) {
+        await apiRequest("/liveness/result", {
+          method: "POST",
+          body: JSON.stringify({
+            challenge_id: challenge.challenge_id,
+            code: challenge.code,
+            result: passed ? "pass" : "fail",
+            fail_reason: failReason,
+          }),
+        });
       }
 
-      const res = await apiRequest("/liveness/result", {
-        method: "POST",
-        body: JSON.stringify({
-          challenge_id: currentChallenge.challenge_id,
-          code: currentChallenge.code,
-          passed: passed,
-        }),
-      });
-
-      if (passed && res.passed) {
-        setTimeout(() => {
-          if (clientId && redirectUri) {
-            window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
-          } else {
-            navigate("/clubs");
-          }
-        }, 800);
+      if (passed) {
+        setStatus("completed_pass");
       } else {
-        isSubmittingRef.current = false;
+        setStatus("completed_fail");
+        setErrorMsg(failReason || "Verification failed");
       }
     } catch (err) {
-      isSubmittingRef.current = false;
+      console.error("Submit result error:", err);
       setStatus("completed_fail");
-      setErrorMsg(err.message || "Liveness verification failed");
+      setErrorMsg(err.message || "Failed to record liveness result");
     }
   };
 
-  // Sequence Advancement
-  const advanceToStep2 = () => {
-    setStep1Passed(true);
-    stepRef.current = 2;
-    setCurrentStep(2);
-    setStepTimeLeft(STEP_TIME_LIMIT);
+  const handleRedirectAfterPass = () => {
+    if (clientId && redirectUri) {
+      window.location.href = `${API_BASE}/sso/authorize?client_id=${encodeURIComponent(
+        clientId
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+    } else {
+      navigate("/clubs", { replace: true });
+    }
   };
 
-  const advanceToStep3 = () => {
-    setStep2Passed(true);
-    stepRef.current = 3;
-    setCurrentStep(3);
-    setStepTimeLeft(STEP_TIME_LIMIT);
-  };
-
-  // 6. MediaPipe face mesh gesture detection
+  // 6. MediaPipe FaceMesh detection loop
   useEffect(() => {
-    if (status !== "waiting_action" || !challenge) return;
+    if (!window.FaceMesh) return;
 
-    let isClosedEye = false;
+    const faceMesh = new window.FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
 
-    const onResults = (results) => {
-      if (isSubmittingRef.current) return;
-      if (!canvasRef.current || !videoRef.current) return;
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
 
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    faceMesh.onResults(onFaceMeshResults);
+    faceMeshRef.current = faceMesh;
 
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
-        const nose = landmarks[1];
-        const leftEye = landmarks[33];
-        const rightEye = landmarks[263];
+    let isProcessing = false;
 
-        // Horizontal yaw deviation
-        const yaw = nose.x - (leftEye.x + rightEye.x) / 2;
-
-        // Draw facial bounding guide
-        ctx.strokeStyle = currentStep === 3 ? "#1F6B3F" : "#D9822B";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.ellipse(canvas.width / 2, canvas.height / 2, 90, 120, 0, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        const step = stepRef.current;
-
-        // Step 1: Head Turn (Right or Left based on challenge)
-        if (step === 1) {
-          const turnDirection = challenge.type === "turn_left" ? "left" : "right";
-          if (turnDirection === "right" && yaw < -0.045) {
-            advanceToStep2();
-          } else if (turnDirection === "left" && yaw > 0.045) {
-            advanceToStep2();
-          }
-        } 
-        // Step 2: Return Head to Center
-        else if (step === 2) {
-          if (Math.abs(yaw) < 0.02) {
-            advanceToStep3();
-          }
-        } 
-        // Step 3: Natural Eye Blink
-        else if (step === 3) {
-          const eyeDist = Math.abs(landmarks[159].y - landmarks[145].y);
-          if (eyeDist < 0.018 && !isClosedEye) {
-            isClosedEye = true;
-          } else if (eyeDist > 0.025 && isClosedEye) {
-            isClosedEye = false;
-            setStep3Passed(true);
-            setBlinkDetected(true);
-            submitResult(true);
-          }
+    async function sendFrame() {
+      if (
+        videoRef.current &&
+        videoRef.current.readyState >= 2 &&
+        !isProcessing &&
+        status === "waiting_action" &&
+        !isSubmittingRef.current
+      ) {
+        isProcessing = true;
+        try {
+          await faceMesh.send({ image: videoRef.current });
+        } catch (e) {
+          // Frame dropped
+        } finally {
+          isProcessing = false;
         }
       }
-    };
-
-    if (window.FaceMesh && videoRef.current) {
-      try {
-        const faceMesh = new window.FaceMesh({
-          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-        });
-        faceMesh.setOptions({
-          maxNumFaces: 1,
-          refineLandmarks: true,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5,
-        });
-        faceMesh.onResults(onResults);
-        faceMeshRef.current = faceMesh;
-
-        const processVideo = async () => {
-          if (isSubmittingRef.current) return;
-          if (videoRef.current && videoRef.current.readyState >= 2) {
-            await faceMesh.send({ image: videoRef.current });
-          }
-          if (status === "waiting_action" && !isSubmittingRef.current) {
-            animationFrameRef.current = requestAnimationFrame(processVideo);
-          }
-        };
-        processVideo();
-      } catch (e) {
-        console.warn("MediaPipe init error:", e);
+      if (status === "waiting_action" && !isSubmittingRef.current) {
+        animationFrameRef.current = requestAnimationFrame(sendFrame);
       }
     }
+
+    if (status === "waiting_action") {
+      animationFrameRef.current = requestAnimationFrame(sendFrame);
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
   }, [status, challenge]);
 
-  // Current instruction text for Steps 1, 2, and 3
-  const getInstruction = () => {
-    if (!challenge) return { title: "Preparing...", subtitle: "Please wait", badge: "Setup" };
+  // Compute Eye Aspect Ratio (EAR)
+  function computeEAR(p1, p2, p3, p4, p5, p6) {
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const num = dist(p2, p6) + dist(p3, p5);
+    const den = 2 * dist(p1, p4);
+    return den === 0 ? 0 : num / den;
+  }
 
-    const turnDir = challenge.type === "turn_left" ? "LEFT 👈" : "RIGHT 👉";
+  // 7. Step state machine
+  const onFaceMeshResults = (results) => {
+    if (isSubmittingRef.current) return;
 
-    if (currentStep === 1) {
-      return {
-        title: `1. Turn your head to the ${turnDir}`,
-        subtitle: `Complete within ${stepTimeLeft}s`,
-        badge: "Step 1 of 3 · Head Yaw"
-      };
-    } else if (currentStep === 2) {
-      return {
-        title: "2. Return your head to the CENTER 🎯",
-        subtitle: `Look straight ahead within ${stepTimeLeft}s`,
-        badge: "Step 2 of 3 · Centering"
-      };
-    } else {
-      return {
-        title: "3. Now BLINK your eyes slowly 👀",
-        subtitle: `Micro-muscle blink within ${stepTimeLeft}s`,
-        badge: "Step 3 of 3 · Blink Check"
-      };
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+      return;
+    }
+
+    const landmarks = results.multiFaceLandmarks[0];
+
+    // Landmark references
+    const nose = landmarks[1];
+    const leftEar = landmarks[234];
+    const rightEar = landmarks[454];
+
+    // Compute yaw ratio: asymmetry between left and right side of nose
+    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
+    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
+    const totalDist = distToLeft + distToRight;
+    const yawRatio = totalDist === 0 ? 0.5 : distToLeft / totalDist;
+
+    // Eye Aspect Ratio (EAR)
+    const leftEAR = computeEAR(
+      landmarks[33],
+      landmarks[160],
+      landmarks[158],
+      landmarks[133],
+      landmarks[153],
+      landmarks[144]
+    );
+    const rightEAR = computeEAR(
+      landmarks[362],
+      landmarks[385],
+      landmarks[387],
+      landmarks[263],
+      landmarks[373],
+      landmarks[380]
+    );
+    const ear = (leftEAR + rightEAR) / 2;
+
+    const activeStep = stepRef.current;
+
+    // STEP 1: Head Turn
+    if (activeStep === 1) {
+      const targetTurn = challenge?.type || "turn_left";
+      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.62 : yawRatio < 0.38;
+
+      if (isTurned) {
+        setStep1Passed(true);
+        stepRef.current = 2;
+        setCurrentStep(2);
+        setStepTimeLeft(STEP_TIME_LIMIT);
+      }
+    }
+    // STEP 2: Return to Center
+    else if (activeStep === 2) {
+      const isCentered = yawRatio >= 0.42 && yawRatio <= 0.58;
+
+      if (isCentered) {
+        setStep2Passed(true);
+        stepRef.current = 3;
+        setCurrentStep(3);
+        setStepTimeLeft(STEP_TIME_LIMIT);
+      }
+    }
+    // STEP 3: Natural Blink
+    else if (activeStep === 3) {
+      if (ear < 0.19) {
+        setBlinkDetected(true);
+      } else if (blinkDetected && ear > 0.24) {
+        setStep3Passed(true);
+        submitResult(true);
+      }
     }
   };
 
-  const currentInstr = getInstruction();
-
-  const handleDeviceChange = (e) => {
-    const devId = e.target.value;
-    setSelectedDeviceId(devId);
-    localStorage.setItem("sankalp_preferred_camera", devId);
+  const getStepHeadline = () => {
+    if (currentStep === 1) {
+      const dir = challenge?.type === "turn_left" ? "left" : "right";
+      return `Turn head ${dir}`;
+    } else if (currentStep === 2) {
+      return "Return to center";
+    } else {
+      return "Blink twice";
+    }
   };
 
+  const getStepDescription = () => {
+    if (currentStep === 1) {
+      return "Turn your head to the side to prove natural 3D depth. A photo cannot do this.";
+    } else if (currentStep === 2) {
+      return "Look straight ahead towards the camera to confirm responsive control.";
+    } else {
+      return "Look at the camera and blink slowly. A printed photo or replay cannot do this.";
+    }
+  };
+
+  const guideColor =
+    status === "completed_pass"
+      ? "#4FA58F"
+      : status === "completed_fail"
+        ? "#E0735A"
+        : "#D9822B";
+
   return (
-    <div style={{ minHeight: "100vh", background: "#F3EFE7", color: "#12171E", display: "flex", flexDirection: "column" }}>
-      
-      {/* Top Banner */}
-      <header style={{ borderBottom: "1px solid #DDD6C7", padding: "14px 24px", background: "#FBF9F4" }}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: "2.5px solid #12171E", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#D9822B" }}></div>
-            </div>
-            <span style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "20px", fontWeight: "600" }}>Real Access</span>
+    <div style={{
+      minHeight: "100vh",
+      fontFamily: "'Inter', system-ui, sans-serif",
+      color: "#12171E",
+      background: "#F3EFE7",
+      display: "flex",
+      flexDirection: "column"
+    }}>
+      {/* HEADER: Matches Camera.dc.html */}
+      <header>
+        <div style={{
+          maxWidth: "1100px",
+          margin: "0 auto",
+          boxSizing: "border-box",
+          padding: "24px 48px",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" stroke="#B8651A" strokeWidth="2"></circle>
+              <circle cx="16" cy="16" r="5" fill="#B8651A"></circle>
+              <path d="M2 16h6M24 16h6" stroke="#B8651A" strokeWidth="2" strokeLinecap="round"></path>
+            </svg>
+            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "22px", fontWeight: 600 }}>
+              Real Access
+            </span>
           </div>
-          <div style={{ fontSize: "13px", color: "#5A6270" }}>
-            Signing in: <strong style={{ color: "#12171E" }}>{userEmail || "Student Account"}</strong>
-          </div>
+
+          <ol style={{
+            margin: 0,
+            padding: 0,
+            listStyle: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            fontSize: "13px",
+            fontWeight: 500
+          }}>
+            <li style={{ display: "flex", alignItems: "center", gap: "8px", color: "#1F6B3F" }}>
+              <span style={{
+                width: "22px",
+                height: "22px",
+                borderRadius: "50%",
+                background: "#1F6B3F",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}>
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M2.5 7.5l3 3 6-6.5" stroke="#F5F1E8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
+                </svg>
+              </span>
+              Sign in
+            </li>
+            <li aria-hidden="true" style={{ width: "32px", height: "1px", background: "#B9B2A3" }}></li>
+            <li aria-current="step" style={{ display: "flex", alignItems: "center", gap: "8px", color: "#12171E" }}>
+              <span style={{
+                width: "22px",
+                height: "22px",
+                borderRadius: "50%",
+                background: "#12171E",
+                color: "#F3EFE7",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "12px"
+              }}>
+                2
+              </span>
+              Camera check
+            </li>
+          </ol>
         </div>
       </header>
 
-      {/* Main Verification Card */}
-      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 16px" }}>
+      {/* MAIN CONTAINER */}
+      <main style={{
+        flex: 1,
+        width: "100%",
+        maxWidth: "1100px",
+        margin: "0 auto",
+        boxSizing: "border-box",
+        padding: "8px 48px 48px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "24px"
+      }}>
         <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "48px",
+          alignItems: "center",
           background: "#FBF9F4",
           border: "1px solid #DDD6C7",
-          borderRadius: "16px",
-          padding: "24px 20px",
-          maxWidth: "520px",
-          width: "100%",
-          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.04)",
-          boxSizing: "border-box"
+          borderRadius: "20px",
+          padding: "40px"
         }}>
-          
-          {/* Header */}
-          <div style={{ textAlign: "center", marginBottom: "14px" }}>
+
+          {/* LEFT: Camera Viewport */}
+          <div style={{ flex: "1 1 400px", minWidth: "300px" }}>
             <div style={{
-              display: "inline-flex",
+              position: "relative",
+              width: "100%",
+              aspectRatio: "4 / 3",
+              background: "#12171E",
+              borderRadius: "16px",
+              overflow: "hidden",
+              display: "flex",
               alignItems: "center",
-              gap: "6px",
-              background: "#F5ECD7",
-              color: "#8A4A0F",
-              padding: "4px 12px",
-              borderRadius: "999px",
-              fontSize: "12px",
-              fontWeight: "600",
-              letterSpacing: "0.5px",
-              textTransform: "uppercase",
-              marginBottom: "8px"
+              justifyContent: "center"
             }}>
-              Step 2 of 2 · 3-Step Live Check
-            </div>
-            <h1 style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "24px", fontWeight: "500", margin: "0 0 6px" }}>
-              Comprehensive Biometric Verification
-            </h1>
-            <p style={{ color: "#5A6270", fontSize: "13px", lineHeight: "1.4", margin: "0 0 12px" }}>
-              3 quick steps: <strong>Turn Head</strong> &rarr; <strong>Center</strong> &rarr; <strong>Blink</strong>. Max 7s each.
-            </p>
-
-            {/* 1-Click Quick Pass Demo Button */}
-            <button
-              type="button"
-              onClick={() => submitResult(true)}
-              style={{
-                width: "100%",
-                height: "42px",
-                background: "#12171E",
-                color: "#F5F1E8",
-                border: 0,
-                borderRadius: "8px",
-                fontSize: "13px",
-                fontWeight: "600",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                cursor: "pointer",
-                marginBottom: "12px",
-                boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
-              }}
-            >
-              <Zap size={16} color="#D9822B" />
-              <span>⚡ Quick Pass (1-Click Demo Verification)</span>
-            </button>
-          </div>
-
-          {/* Sequential 3-Step Progress Tracker */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto 1.2fr auto 1fr",
-            alignItems: "center",
-            background: "#EFECE4",
-            borderRadius: "8px",
-            padding: "8px 12px",
-            marginBottom: "12px",
-            fontSize: "11px",
-            fontWeight: "500",
-            gap: "6px"
-          }}>
-            {/* Step 1 */}
-            <div style={{ display: "flex", alignItems: "center", gap: "5px", color: step1Passed ? "#1F6B3F" : currentStep === 1 ? "#8A4A0F" : "#5A6270" }}>
-              <div style={{
-                width: "18px",
-                height: "18px",
-                borderRadius: "50%",
-                background: step1Passed ? "#1F6B3F" : currentStep === 1 ? "#D9822B" : "#DDD6C7",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "10px",
-                fontWeight: "bold",
-                flexShrink: 0
-              }}>
-                {step1Passed ? <Check size={11} /> : "1"}
-              </div>
-              <span>Turn</span>
-            </div>
-
-            <ArrowRight size={12} color="#8A4A0F" />
-
-            {/* Step 2 */}
-            <div style={{ display: "flex", alignItems: "center", gap: "5px", color: step2Passed ? "#1F6B3F" : currentStep === 2 ? "#8A4A0F" : "#5A6270" }}>
-              <div style={{
-                width: "18px",
-                height: "18px",
-                borderRadius: "50%",
-                background: step2Passed ? "#1F6B3F" : currentStep === 2 ? "#D9822B" : "#DDD6C7",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "10px",
-                fontWeight: "bold",
-                flexShrink: 0
-              }}>
-                {step2Passed ? <Check size={11} /> : "2"}
-              </div>
-              <span>Center</span>
-            </div>
-
-            <ArrowRight size={12} color="#8A4A0F" />
-
-            {/* Step 3 */}
-            <div style={{ display: "flex", alignItems: "center", gap: "5px", color: step3Passed ? "#1F6B3F" : currentStep === 3 ? "#8A4A0F" : "#5A6270" }}>
-              <div style={{
-                width: "18px",
-                height: "18px",
-                borderRadius: "50%",
-                background: step3Passed ? "#1F6B3F" : currentStep === 3 ? "#D9822B" : "#DDD6C7",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "10px",
-                fontWeight: "bold",
-                flexShrink: 0
-              }}>
-                {step3Passed ? <Check size={11} /> : "3"}
-              </div>
-              <span>Blink</span>
-            </div>
-          </div>
-
-          {/* Camera Selector (If multiple cameras detected) */}
-          {videoDevices.length > 1 && (
-            <div style={{ marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", flexWrap: "wrap" }}>
-              <Camera size={14} color="#5A6270" />
-              <label style={{ color: "#5A6270", fontWeight: "600" }}>Webcam:</label>
-              <select
-                value={selectedDeviceId}
-                onChange={handleDeviceChange}
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                autoPlay
                 style={{
-                  flex: 1,
-                  minWidth: "180px",
-                  height: "30px",
-                  padding: "0 8px",
-                  borderRadius: "6px",
-                  border: "1px solid #C4BCAF",
-                  background: "#FDFBF7",
-                  fontSize: "12px",
-                  color: "#12171E"
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transform: "scaleX(-1)"
                 }}
-              >
-                {videoDevices.map((dev, idx) => (
-                  <option key={dev.deviceId || idx} value={dev.deviceId}>
-                    {dev.label || `Camera ${idx + 1}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+              />
+              <canvas
+                ref={canvasRef}
+                width={640}
+                height={480}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  pointerEvents: "none",
+                  transform: "scaleX(-1)"
+                }}
+              />
 
-          {/* Video Container */}
-          <div style={{
-            position: "relative",
-            width: "100%",
-            height: "230px",
-            background: "#12171E",
-            borderRadius: "12px",
-            overflow: "hidden",
-            marginBottom: "12px",
-            border: "2px solid #2A3340",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                transform: "scaleX(-1)"
-              }}
-            />
-            <canvas
-              ref={canvasRef}
-              width={640}
-              height={480}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                pointerEvents: "none",
-                transform: "scaleX(-1)"
-              }}
-            />
-
-            {/* Connecting Spinner */}
-            {status === "camera_connecting" && (
+              {/* Dashed Oval Guide */}
               <div style={{
                 position: "absolute",
+                width: "46%",
+                aspectRatio: "3 / 4",
+                borderRadius: "50%",
+                border: `3px dashed ${guideColor}`,
+                pointerEvents: "none",
+                transition: "border-color 0.3s ease"
+              }}></div>
+
+              {/* Status Pill Badge */}
+              <div style={{
+                position: "absolute",
+                top: "14px",
+                left: "14px",
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
                 gap: "8px",
+                fontSize: "12px",
+                fontWeight: 500,
                 color: "#F5F1E8",
-                zIndex: 2,
-                padding: "16px",
-                textAlign: "center"
+                background: "rgba(18, 23, 30, 0.8)",
+                borderRadius: "999px",
+                padding: "6px 12px",
+                zIndex: 5
               }}>
-                <RefreshCw size={24} className="spin-slow" />
-                <div style={{ fontSize: "14px", fontWeight: "500" }}>Connecting to webcam...</div>
-                <div style={{ fontSize: "11px", color: "#A9B0BA" }}>Or click Quick Pass to skip camera</div>
+                <span style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: status === "camera_connecting" ? "#D9822B" : "#7FD1A0"
+                }}></span>
+                {status === "camera_connecting" ? "Connecting camera..." : "Camera on · this device only"}
+              </div>
+            </div>
+
+            {/* Webcam selection if multiple cameras exist */}
+            {videoDevices.length > 1 && (
+              <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#5A6270" }}>
+                <span>Webcam:</span>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => {
+                    const devId = e.target.value;
+                    setSelectedDeviceId(devId);
+                    localStorage.setItem("sankalp_preferred_camera", devId);
+                  }}
+                  style={{
+                    flex: 1,
+                    height: "30px",
+                    padding: "0 8px",
+                    borderRadius: "6px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    fontSize: "12px",
+                    color: "#12171E"
+                  }}
+                >
+                  {videoDevices.map((dev, idx) => (
+                    <option key={dev.deviceId || idx} value={dev.deviceId}>
+                      {dev.label || `Camera ${idx + 1}`}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
+          </div>
 
-            {/* In-Frame Live Overlay */}
-            {status !== "camera_connecting" && (
-              <div style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                padding: "10px",
-                boxSizing: "border-box",
-                pointerEvents: "none"
-              }}>
-                {/* Top timer bar: Resets per step (7s limit) */}
-                <div>
-                  <div style={{ height: "4px", background: "rgba(255,255,255,0.2)", borderRadius: "2px", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${(stepTimeLeft / STEP_TIME_LIMIT) * 100}%`,
-                        background: stepTimeLeft < 3 ? "#9B3A22" : "#D9822B",
-                        transition: "width 1s linear"
-                      }}
-                    />
+          {/* RIGHT: Status & Instructions */}
+          <div style={{ flex: "1 1 360px", minWidth: "300px", display: "flex", flexDirection: "column", gap: "24px" }}>
+
+            {/* VIEW 1: CHECKING IN PROGRESS */}
+            {(status === "waiting_action" || status === "camera_connecting") && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, letterSpacing: "2.2px", color: "#8A4A0F" }}>
+                    CAMERA CHECK
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px", fontSize: "11px", color: "#F5F1E8", textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
-                    <span style={{ fontWeight: 600 }}>{currentInstr.badge}</span>
-                    <span style={{ fontWeight: 600 }}>{stepTimeLeft}s remaining</span>
+                  <h1 style={{
+                    margin: 0,
+                    fontFamily: "'Newsreader', Georgia, serif",
+                    fontWeight: 500,
+                    fontSize: "48px",
+                    lineHeight: 1.05,
+                    color: "#12171E"
+                  }}>
+                    {getStepHeadline()}
+                  </h1>
+                  <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.55, color: "#5A6270" }}>
+                    {getStepDescription()}
+                  </p>
+                </div>
+
+                {/* Step Progress Segments */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", fontWeight: 500, color: "#12171E" }}>
+                    <span>Step {currentStep} of 3</span>
+                    <span style={{ color: "#5A6270" }}>
+                      {currentStep === 1 ? "Turn Head" : currentStep === 2 ? "Center Face" : "Natural Blink"}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: currentStep >= 1 ? "#12171E" : "#DDD6C7" }}></div>
+                    <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: currentStep >= 2 ? "#12171E" : "#DDD6C7" }}></div>
+                    <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: currentStep >= 3 ? "#12171E" : "#DDD6C7" }}></div>
                   </div>
                 </div>
 
-                {/* Central Action Prompt Banner */}
-                {status === "waiting_action" && (
-                  <div style={{
-                    background: "rgba(18, 23, 30, 0.92)",
-                    backdropFilter: "blur(4px)",
-                    border: "1px solid rgba(217, 130, 43, 0.4)",
-                    borderRadius: "8px",
-                    padding: "8px 12px",
-                    textAlign: "center",
-                    color: "#F5F1E8",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.4)"
-                  }}>
-                    <div style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "17px", fontWeight: "500" }}>
-                      {currentInstr.title}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#A9B0BA", marginTop: "2px" }}>
-                      {currentInstr.subtitle}
-                    </div>
-                  </div>
-                )}
+                {/* Countdown */}
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", color: "#5A6270" }}>
+                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <circle cx="10" cy="10" r="7.5" stroke="#5A6270" strokeWidth="1.5"></circle>
+                    <path d="M10 5.5V10l3 2" stroke="#5A6270" strokeWidth="1.5" strokeLinecap="round"></path>
+                  </svg>
+                  <span>This step expires in {stepTimeLeft} seconds</span>
+                </div>
 
-                {/* Passed Banner */}
-                {status === "completed_pass" && (
-                  <div style={{
-                    background: "rgba(31, 107, 63, 0.95)",
-                    borderRadius: "8px",
-                    padding: "10px",
-                    textAlign: "center",
-                    color: "#F5F1E8"
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontWeight: "600", fontSize: "14px" }}>
-                      <CheckCircle2 size={18} />
-                      <span>3-Step Liveness Confirmed!</span>
-                    </div>
-                    <div style={{ fontSize: "11px", opacity: 0.9, marginTop: "2px" }}>
-                      Recorded in PostgreSQL · Redirecting to clubs...
-                    </div>
-                  </div>
-                )}
+                <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "8px", fontSize: "13.5px", color: "#4A5260" }}>
+                  <li>&bull; Face the light and keep your face inside the oval.</li>
+                  <li>&bull; Take off glasses if they reflect the screen.</li>
+                </ul>
 
-                {/* Failed Banner */}
-                {status === "completed_fail" && (
-                  <div style={{
-                    background: "rgba(155, 58, 34, 0.95)",
-                    borderRadius: "8px",
-                    padding: "10px",
-                    textAlign: "center",
-                    color: "#F5F1E8"
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", fontWeight: "600", fontSize: "14px" }}>
-                      <XCircle size={18} />
-                      <span>Check Failed or Timed Out</span>
-                    </div>
-                    <div style={{ fontSize: "11px", opacity: 0.9, marginTop: "2px" }}>
-                      Please try again or use Quick Pass
-                    </div>
-                  </div>
-                )}
+                {/* Clean Demo Actions (Zero AI icons) */}
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", paddingTop: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => submitResult(true)}
+                    style={{
+                      height: "44px",
+                      padding: "0 22px",
+                      background: "#12171E",
+                      color: "#F5F1E8",
+                      border: 0,
+                      borderRadius: "8px",
+                      fontSize: "14px",
+                      fontWeight: 600,
+                      cursor: "pointer"
+                    }}
+                  >
+                    Quick Demo Verification
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => submitResult(false, "Simulated still photo check failure")}
+                    style={{
+                      height: "44px",
+                      padding: "0 18px",
+                      background: "transparent",
+                      color: "#9B3A22",
+                      border: "1px solid #DDD6C7",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      cursor: "pointer"
+                    }}
+                  >
+                    Test Photo Fail
+                  </button>
+                </div>
               </div>
             )}
-          </div>
 
-          {/* Privacy Note */}
-          <div style={{
-            background: "#EFECE4",
-            border: "1px solid #DDD6C7",
-            borderRadius: "6px",
-            padding: "8px 12px",
-            fontSize: "11px",
-            color: "#5A6270",
-            lineHeight: "1.35",
-            marginBottom: "12px",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px"
-          }}>
-            <ShieldCheck size={16} color="#1F6B3F" style={{ flexShrink: 0 }} />
-            <span><strong>PostgreSQL Storage:</strong> Verified pass/fail status is saved in the database. Video frames never leave your browser.</span>
-          </div>
+            {/* VIEW 2: PASSED */}
+            {status === "completed_pass" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                <div style={{
+                  width: "56px",
+                  height: "56px",
+                  borderRadius: "50%",
+                  background: "#DDEFE2",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  <svg width="28" height="28" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M2.5 7.5l3 3 6-6.5" stroke="#1F6B3F" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"></path>
+                  </svg>
+                </div>
 
-          {errorMsg && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <h1 style={{
+                    margin: 0,
+                    fontFamily: "'Newsreader', Georgia, serif",
+                    fontWeight: 500,
+                    fontSize: "48px",
+                    lineHeight: 1.05,
+                    color: "#12171E"
+                  }}>
+                    You are verified
+                  </h1>
+                  <p style={{ margin: 0, fontSize: "16px", lineHeight: 1.55, color: "#5A6270" }}>
+                    Thank you. Only the result is saved. Your video was never sent anywhere.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRedirectAfterPass}
+                  style={{
+                    alignSelf: "flex-start",
+                    height: "48px",
+                    padding: "0 28px",
+                    display: "flex",
+                    alignItems: "center",
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    color: "#F5F1E8",
+                    background: "#12171E",
+                    borderRadius: "8px",
+                    border: 0,
+                    cursor: "pointer"
+                  }}
+                >
+                  Open my clubs
+                </button>
+              </div>
+            )}
+
+            {/* VIEW 3: FAILED */}
+            {status === "completed_fail" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                <div style={{
+                  width: "56px",
+                  height: "56px",
+                  borderRadius: "50%",
+                  background: "#F6DDD4",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" stroke="#9B3A22" strokeWidth="2.2" strokeLinecap="round"></path>
+                  </svg>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <h1 style={{
+                    margin: 0,
+                    fontFamily: "'Newsreader', Georgia, serif",
+                    fontWeight: 500,
+                    fontSize: "44px",
+                    lineHeight: 1.08,
+                    color: "#12171E"
+                  }}>
+                    We could not confirm that
+                  </h1>
+                  <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.55, color: "#5A6270" }}>
+                    {errorMsg || "The check timed out. Move to a brighter spot and try again."}
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px" }}>
+                  <button
+                    type="button"
+                    onClick={fetchChallenge}
+                    style={{
+                      height: "46px",
+                      padding: "0 28px",
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#F5F1E8",
+                      background: "#12171E",
+                      border: 0,
+                      borderRadius: "8px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Try again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => submitResult(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      fontSize: "14px",
+                      color: "#12171E",
+                      textDecoration: "underline",
+                      textUnderlineOffset: "3px",
+                      cursor: "pointer"
+                    }}
+                  >
+                    Quick Demo Verification
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Bottom Privacy Note */}
             <div style={{
-              background: "#F6DDD4",
-              border: "1px solid #9B3A22",
-              borderRadius: "6px",
-              padding: "8px 10px",
-              color: "#9B3A22",
-              fontSize: "12px",
               display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              marginBottom: "12px"
+              alignItems: "flex-start",
+              gap: "12px",
+              paddingTop: "20px",
+              borderTop: "1px solid #E6E0D2"
             }}>
-              <AlertCircle size={14} style={{ flexShrink: 0 }} />
-              <div>{errorMsg}</div>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ flex: "none", marginTop: "2px" }}>
+                <path d="M10 2l6 2.5v4.7c0 3.9-2.5 7-6 8.3-3.5-1.3-6-4.4-6-8.3V4.5L10 2z" stroke="#5A6270" strokeWidth="1.5" strokeLinejoin="round"></path>
+              </svg>
+              <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.55, color: "#5A6270" }}>
+                Your video stays in this browser and is never uploaded. Only pass or fail is stored.
+              </p>
             </div>
-          )}
 
-          {/* Retry & Controls */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-            <button
-              type="button"
-              onClick={fetchChallenge}
-              style={{
-                background: "transparent",
-                border: 0,
-                color: "#12171E",
-                fontSize: "12px",
-                fontWeight: "500",
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-                cursor: "pointer"
-              }}
-            >
-              <RotateCcw size={13} /> Try Again
-            </button>
-
-            <button
-              type="button"
-              onClick={() => submitResult(false, "Simulated still photo check failure")}
-              style={{
-                background: "transparent",
-                color: "#9B3A22",
-                border: "1px solid #9B3A22",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: "600",
-                padding: "5px 12px",
-                cursor: "pointer"
-              }}
-            >
-              ❌ Test Photo Fail
-            </button>
           </div>
         </div>
       </main>
