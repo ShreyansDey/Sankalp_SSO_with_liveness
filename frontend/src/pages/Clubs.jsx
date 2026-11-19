@@ -32,24 +32,43 @@ export default function Clubs() {
         if (data && data.status === "active") {
           setUser(data);
         } else {
-          navigate("/login");
+          navigate("/login", { replace: true });
         }
       } catch (e) {
-        navigate("/login");
+        navigate("/login", { replace: true });
       } finally {
         setLoading(false);
       }
     }
     loadUser();
+
+    // Defeat Back-Forward Cache (bfcache): re-verify session if browser navigates back
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        loadUser();
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
   }, [navigate]);
 
   const handleSignOut = async () => {
+    const userName = user?.name || "Student";
+    const userRole = user?.role || "member";
+    const enrolledClubs = userRole === "admin" ? [] : activeClubs.map(c => c.name);
     try {
       await apiRequest("/auth/logout", { method: "POST" });
     } catch (e) {
       // Ignore
     }
-    navigate("/login");
+    navigate("/signed-out", {
+      replace: true,
+      state: {
+        name: userName,
+        role: userRole,
+        clubs: enrolledClubs
+      }
+    });
   };
 
   const getInitials = (name) => {
@@ -73,74 +92,41 @@ export default function Clubs() {
       id: "app-b",
       name: "Robotics Society",
       desc: "Build nights, parts inventory and competition teams.",
-      port: 5175,
       url: "http://localhost:5175",
-      headerBg: "#E4DDCF",
+      image: "/images/robotics.jpg",
       roleText: "Member · until 30 Jun 2027",
-      iconSvg: (
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-          <circle cx="22" cy="22" r="7" stroke="#12171E" strokeWidth="2"></circle>
-          <path d="M22 6v6M22 32v6M6 22h6M32 22h6M10.7 10.7l4.3 4.3M29 29l4.3 4.3M33.3 10.7L29 15M15 29l-4.3 4.3" stroke="#12171E" strokeWidth="2" strokeLinecap="round"></path>
-        </svg>
-      )
     },
     {
       id: "app-a",
       name: "Photography Club",
       desc: "Shared gallery, gear bookings and photo walks.",
-      port: 5174,
       url: "http://localhost:5174",
-      headerBg: "#EBD5C7",
+      image: "/images/photography.jpg",
       roleText: "Member · until 30 Jun 2027",
-      iconSvg: (
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-          <path d="M6 15h8l3-5h10l3 5h8v19H6V15z" stroke="#12171E" strokeWidth="2" strokeLinejoin="round"></path>
-          <circle cx="22" cy="24" r="6" stroke="#12171E" strokeWidth="2"></circle>
-        </svg>
-      )
     },
     {
       id: "app-c",
       name: "Coding & AI Club",
       desc: "Weekly challenges, project showcase and hackathon teams.",
-      port: 5176,
       url: "http://localhost:5176",
-      headerBg: "#D5DCD3",
+      image: "/images/coding.jpg",
       roleText: "Member · until 30 Jun 2027",
-      iconSvg: (
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-          <path d="M16 14l-9 8 9 8M28 14l9 8-9 8M25 10l-6 24" stroke="#12171E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
-        </svg>
-      )
     },
     {
       id: "app-d",
       name: "Chess & Mind Sports",
       desc: "Tournament brackets, ELO ranking and blitz arena nights.",
-      port: 5177,
       url: "http://localhost:5177",
-      headerBg: "#E4DDCF",
+      image: "/images/chess.jpg",
       roleText: "Member · until 31 Mar 2027",
-      iconSvg: (
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-          <path d="M14 34h16M18 10h8M19 14h6M16 34l2-16h8l2 16" stroke="#12171E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
-        </svg>
-      )
     },
     {
       id: "app-e",
       name: "Athletics & Sports",
       desc: "Gymnasium access, team rosters and fitness lockers.",
-      port: 5178,
       url: "http://localhost:5178",
-      headerBg: "#D3DAE3",
+      image: "/images/athletics.jpg",
       roleText: "Member · until 30 Jun 2027",
-      iconSvg: (
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-          <circle cx="22" cy="14" r="5" stroke="#12171E" strokeWidth="2"></circle>
-          <path d="M14 26l8-4 8 4M22 22v14M16 36l6-4 6 4" stroke="#12171E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
-        </svg>
-      )
     }
   ];
 
@@ -336,27 +322,19 @@ export default function Clubs() {
               }}
             >
               <div style={{
-                height: "112px",
-                background: club.headerBg,
+                height: "140px",
                 position: "relative",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center"
+                overflow: "hidden"
               }}>
-                {club.iconSvg}
-                <span style={{
-                  position: "absolute",
-                  top: "14px",
-                  right: "14px",
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  color: "#1F6B3F",
-                  background: "#DDEFE2",
-                  borderRadius: "999px",
-                  padding: "3px 10px"
-                }}>
-                  Active · Port {club.port}
-                </span>
+                <img
+                  src={club.image}
+                  alt={club.name}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover"
+                  }}
+                />
               </div>
 
               <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px", flex: 1 }}>
@@ -370,7 +348,7 @@ export default function Clubs() {
                 </div>
 
                 <div style={{ fontSize: "13px", color: "#5A6270", marginTop: "auto" }}>
-                  {club.roleText}
+                  {user?.role === "admin" ? "Administrator · System Oversight" : club.roleText}
                 </div>
 
                 <a
@@ -391,65 +369,68 @@ export default function Clubs() {
                     textDecoration: "none"
                   }}
                 >
-                  Open <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 9h12M10 4l5 5-5 5" stroke="#F5F1E8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path></svg>
+                  {user?.role === "admin" ? "Inspect Club" : "Open"} <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 9h12M10 4l5 5-5 5" stroke="#F5F1E8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path></svg>
                 </a>
               </div>
             </div>
           ))}
 
-          {/* Ended Access Demonstration Card */}
+          {/* Coming Soon Club Card (Debating Club) */}
           <div style={{
             display: "flex",
             flexDirection: "column",
-            background: "#F7F4EC",
-            border: "1px dashed #B9B2A3",
+            background: "#FBF9F4",
+            border: "1px solid #DDD6C7",
             borderRadius: "14px",
             overflow: "hidden"
           }}>
             <div style={{
-              height: "112px",
-              background: "#E7E3DA",
+              height: "140px",
               position: "relative",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center"
+              overflow: "hidden"
             }}>
-              <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-                <path d="M8 12h28v16H20l-8 6v-6H8V12z" stroke="#6B7280" strokeWidth="2" strokeLinejoin="round"></path>
-                <path d="M16 20h12" stroke="#6B7280" strokeWidth="2" strokeLinecap="round"></path>
-              </svg>
+              <img
+                src="/images/debating.jpg"
+                alt="Debating Club"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  filter: "brightness(0.92)"
+                }}
+              />
               <span style={{
                 position: "absolute",
                 top: "14px",
                 right: "14px",
                 fontSize: "12px",
-                fontWeight: 500,
-                color: "#9B3A22",
-                background: "#F6DDD4",
+                fontWeight: 600,
+                color: "#4A5260",
+                background: "#EAE4D6",
                 borderRadius: "999px",
-                padding: "3px 10px"
+                padding: "3px 12px"
               }}>
-                Access ended
+                Coming Soon
               </span>
             </div>
 
             <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "14px", flex: 1 }}>
               <div>
-                <h2 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 600, fontSize: "24px", color: "#4A5260" }}>
+                <h2 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 600, fontSize: "24px", color: "#12171E" }}>
                   Debating Club
                 </h2>
                 <p style={{ margin: 0, fontSize: "14px", lineHeight: "1.5", color: "#5A6270" }}>
-                  Your membership term ended, so this club closed to you automatically.
+                  Parliamentary debate rounds, speaker workshops, and inter-collegiate tournament leagues.
                 </p>
               </div>
 
               <div style={{ fontSize: "13px", color: "#5A6270", marginTop: "auto" }}>
-                Term ended 31 Oct 2026
+                Launches next semester &bull; Open to all students
               </div>
 
               <button
                 type="button"
-                onClick={() => alert("Your term ended on 31 Oct 2026. Contact your administrator to renew membership.")}
+                disabled
                 style={{
                   height: "44px",
                   display: "flex",
@@ -457,14 +438,14 @@ export default function Clubs() {
                   justifyContent: "center",
                   fontSize: "15px",
                   fontWeight: 600,
-                  color: "#12171E",
-                  border: "1px solid #12171E",
-                  background: "transparent",
+                  color: "#8C8574",
+                  border: "1px solid #DDD6C7",
+                  background: "#EBE5D8",
                   borderRadius: "8px",
-                  cursor: "pointer"
+                  cursor: "not-allowed"
                 }}
               >
-                Ask the club admin
+                Coming Soon
               </button>
             </div>
           </div>
