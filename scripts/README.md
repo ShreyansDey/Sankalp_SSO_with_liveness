@@ -8,8 +8,8 @@ Unified one-click automation scripts to **Start**, **Stop**, **Restart**, and ch
 
 | Service | Technology | Port | URL |
 |---|---|---|---|
-| **Central Login & Admin** | React (Vite) | `5173` | http://localhost:5173 |
-| **Auth Backend API** | Python (FastAPI / Uvicorn) | `8000` | http://localhost:8000/docs |
+| **Central Login & Admin** | React (Vite) | `5180` | http://localhost:5180 |
+| **Auth Backend API** | Python (FastAPI / Uvicorn) | `8001` | http://localhost:8001/docs |
 | **Demo App A** | Photography Club Portal | `5174` | http://localhost:5174 |
 | **Demo App B** | Robotics Lab Portal | `5175` | http://localhost:5175 |
 
