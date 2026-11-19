@@ -21,19 +21,19 @@ if ($Background) {
     $VenvPython = "$RootDir/backend/.venv/Scripts/python.exe"
     & "$VenvPython" "$RootDir/backend/seed.py"
 
-    # 1. Backend Server (FastAPI on Port 8000)
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/backend'; & '$VenvPython' -m uvicorn app.main:app --reload --port 8000"
+    # 1. Backend Server (FastAPI on Port 8001)
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/backend'; & '$VenvPython' -m uvicorn app.main:app --reload --port 8001"
     
     # 2. 5 Connected Campus Clubs (Ports 5174 through 5178)
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/demo-apps'; & '$VenvPython' serve_demo_apps.py"
     
-    # 3. Central Login & Clubs Hub (Vite on Port 5173)
+    # 3. Central Login & Clubs Hub (Vite on Port 5180)
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/frontend'; npm run dev"
 
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "  🎉 All services launched successfully!" -ForegroundColor Green
-    Write-Host "  • Central Login & Clubs Hub : http://localhost:5173" -ForegroundColor Green
-    Write-Host "  • Backend API & Docs        : http://localhost:8000/docs" -ForegroundColor Green
+    Write-Host "  • Central Login & Clubs Hub : http://localhost:5180" -ForegroundColor Green
+    Write-Host "  • Backend API & Docs        : http://localhost:8001/docs" -ForegroundColor Green
     Write-Host "  • 1. Photography Club       : http://localhost:5174" -ForegroundColor Green
     Write-Host "  • 2. Robotics Lab           : http://localhost:5175" -ForegroundColor Green
     Write-Host "  • 3. Coding & AI Club       : http://localhost:5176" -ForegroundColor Green
