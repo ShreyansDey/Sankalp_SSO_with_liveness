@@ -2,8 +2,8 @@
 """
 Sankalp SSO System Manager
 Controls lifecycle: start, stop, restart, and status of all services:
- - Backend API (FastAPI)       -> http://localhost:8000
- - Central Frontend (Vite)     -> http://localhost:5173
+ - Backend API (FastAPI)       -> http://localhost:8001
+ - Central Frontend (Vite)     -> http://localhost:5180
  - Demo Apps (App A & App B)   -> http://localhost:5174 & 5175
 """
 
@@ -21,8 +21,8 @@ PID_FILE = ROOT_DIR / "scripts" / ".pids.json"
 LOG_DIR = ROOT_DIR / "logs"
 
 PORTS = {
-    "Backend (FastAPI)": 8000,
-    "Central Login (Vite)": 5173,
+    "Backend (FastAPI)": 8001,
+    "Central Login (Vite)": 5180,
     "Demo App A (Photo Club)": 5174,
     "Demo App B (Robotics Lab)": 5175,
     "Demo App C (Coding & AI)": 5176,
@@ -151,10 +151,10 @@ def start(foreground=False):
 
     pids = {}
 
-    # 1. Start Backend (FastAPI on 8000)
-    print("⚡ Launching Backend (FastAPI) on http://localhost:8000...")
+    # 1. Start Backend (FastAPI on 8001)
+    print("⚡ Launching Backend (FastAPI) on http://localhost:8001...")
     p_backend = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"],
         cwd=str(ROOT_DIR / "backend"),
         stdout=backend_log,
         stderr=backend_log
@@ -171,8 +171,8 @@ def start(foreground=False):
     )
     pids["demos"] = p_demos.pid
 
-    # 3. Start Frontend (Vite on 5173)
-    print("⚡ Launching Central Login Portal (Vite) on http://localhost:5173...")
+    # 3. Start Frontend (Vite on 5180)
+    print("⚡ Launching Central Login Portal (Vite) on http://localhost:5180...")
     npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
     p_frontend = subprocess.Popen(
         [npm_cmd, "run", "dev"],
@@ -189,8 +189,8 @@ def start(foreground=False):
     all_ready = False
     for _ in range(15):
         time.sleep(1)
-        b_up = check_port_listening(8000)
-        f_up = check_port_listening(5173)
+        b_up = check_port_listening(8001)
+        f_up = check_port_listening(5180)
         d_up = check_port_listening(5174)
         if b_up and f_up and d_up:
             all_ready = True
@@ -202,8 +202,8 @@ def start(foreground=False):
     else:
         print("  ℹ️ Services started (initializing background workers)...")
     print("=" * 65)
-    print("  • Central Login & Admin : http://localhost:5173")
-    print("  • Backend API & Docs    : http://localhost:8000/docs")
+    print("  • Central Login & Admin : http://localhost:5180")
+    print("  • Backend API & Docs    : http://localhost:8001/docs")
     print("  • Demo App A (Photo)    : http://localhost:5174")
     print("  • Demo App B (Robotics) : http://localhost:5175")
     print("=" * 65)
