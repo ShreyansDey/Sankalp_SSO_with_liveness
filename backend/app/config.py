@@ -27,7 +27,7 @@ ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "10"))
 SSO_SESSION_HOURS = int(os.getenv("SSO_SESSION_HOURS", "8"))
 INACTIVITY_DAYS = int(os.getenv("INACTIVITY_DAYS", "60"))
 
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5180")
 APP_A_ORIGIN = os.getenv("APP_A_ORIGIN", "http://localhost:5174")
 APP_B_ORIGIN = os.getenv("APP_B_ORIGIN", "http://localhost:5175")
 
