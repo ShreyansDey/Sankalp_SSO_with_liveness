@@ -10,7 +10,7 @@ Write-Host "==========================================================" -Foregro
 python scripts/manager.py stop
 
 # Double-check and force-release any lingering ports
-$Ports = @(8000, 5173, 5174, 5175, 5176, 5177, 5178)
+$Ports = @(8000, 8001, 5173, 5180, 5174, 5175, 5176, 5177, 5178)
 foreach ($Port in $Ports) {
     try {
         $conns = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
