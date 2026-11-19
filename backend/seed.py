@@ -12,12 +12,12 @@ from app.models import User, Product, Invite
 from app.security import hash_password, hash_token, generate_random_token
 
 def seed():
-    print("🌱 Initializing database schema...")
+    print(" Initializing database schema...")
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     try:
-        print("🌱 Seeding initial demo users and products...")
+        print(" Seeding initial demo users and products...")
 
         # 1. Admin user
         admin = db.query(User).filter(User.email == "admin@jadavpur.edu").first()
