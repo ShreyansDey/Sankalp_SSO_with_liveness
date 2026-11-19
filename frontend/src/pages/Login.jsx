@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
-import { Eye, EyeOff, ShieldCheck, ArrowRight, AlertCircle } from "lucide-react";
 
 /**
  * ==============================================================================
@@ -28,6 +27,8 @@ export default function Login() {
   const redirectUri = searchParams.get("redirect_uri") || "";
   const state = searchParams.get("state") || "";
 
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -71,7 +72,12 @@ export default function Login() {
     try {
       const res = await apiRequest("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          name: fullName.trim() || undefined,
+          phone: phone.trim() || undefined
+        }),
       });
 
       if (res.next === "liveness") {
@@ -83,14 +89,14 @@ export default function Login() {
         if (redirectUri) params.set("redirect_uri", redirectUri);
         if (state) params.set("state", state);
 
-        navigate(`/liveness?${params.toString()}`);
+        navigate(`/liveness?${params.toString()}`, { replace: true });
       } else if (res.next === "authenticated") {
         if (clientId && redirectUri) {
           window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
         } else if (res.user && res.user.role === "admin") {
-          navigate("/admin");
+          navigate("/admin", { replace: true });
         } else {
-          navigate("/clubs");
+          navigate("/clubs", { replace: true });
         }
       }
     } catch (err) {
@@ -106,11 +112,36 @@ export default function Login() {
     }
   };
 
-  const fillCredentials = (userEmail, userPass) => {
-    setEmail(userEmail);
-    setPassword(userPass);
+  const fillDevUser = (type) => {
+    if (!import.meta.env.DEV) return;
+    if (type === "admin") {
+      setFullName(import.meta.env.VITE_DEV_ADMIN_NAME || "Sankalp Admin");
+      setPhone(import.meta.env.VITE_DEV_ADMIN_PHONE || "+91 98765 00001");
+      setEmail(import.meta.env.VITE_DEV_ADMIN_EMAIL || "admin@jadavpur.edu");
+      setPassword(import.meta.env.VITE_DEV_ADMIN_PASSWORD || "shaan123");
+    } else {
+      setFullName(import.meta.env.VITE_DEV_MEMBER_NAME || "Rahul Sharma");
+      setPhone(import.meta.env.VITE_DEV_MEMBER_PHONE || "+91 98765 00002");
+      setEmail(import.meta.env.VITE_DEV_MEMBER_EMAIL || "rahul@club.edu");
+      setPassword(import.meta.env.VITE_DEV_MEMBER_PASSWORD || "shaan123");
+    }
     setError(null);
   };
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const handleKeyDown = (e) => {
+      if (e.altKey && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        fillDevUser("admin");
+      } else if (e.altKey && (e.key === "m" || e.key === "M")) {
+        e.preventDefault();
+        fillDevUser("member");
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   if (checkingSession) {
     return (
@@ -122,7 +153,9 @@ export default function Login() {
 
   return (
     <div style={{
-      minHeight: "100vh",
+      height: "100vh",
+      maxHeight: "100vh",
+      overflow: "hidden",
       display: "flex",
       flexWrap: "wrap",
       fontFamily: "'Inter', system-ui, sans-serif",
@@ -132,40 +165,40 @@ export default function Login() {
 
       {/* LEFT: Editorial Brand Panel */}
       <div style={{
-        flex: "1 1 540px",
+        flex: "1 1 500px",
         minWidth: "320px",
         background: "#12171E",
         color: "#E9E4D8",
         boxSizing: "border-box",
-        padding: "48px 64px",
+        padding: "36px 48px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        gap: "48px"
+        gap: "24px"
       }}>
         {/* Brand Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <circle cx="16" cy="16" r="14" stroke="#D9822B" strokeWidth="2"></circle>
             <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
             <path d="M2 16h6M24 16h6" stroke="#D9822B" strokeWidth="2" strokeLinecap="round"></path>
           </svg>
-          <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "24px", fontWeight: 600, letterSpacing: "0.2px" }}>
+          <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "22px", fontWeight: 600, letterSpacing: "0.2px" }}>
             Real Access
           </span>
         </div>
 
         {/* Brand Narrative & Sample Access Passes */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "36px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div style={{ fontSize: "12px", fontWeight: 600, letterSpacing: "2.4px", color: "#D9822B" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "2.2px", color: "#D9822B" }}>
               SELF-HOSTED SIGN-IN
             </div>
             <h1 style={{
               margin: 0,
               fontFamily: "'Newsreader', Georgia, serif",
               fontWeight: 500,
-              fontSize: "clamp(38px, 5vw, 54px)",
+              fontSize: "clamp(30px, 3.2vw, 42px)",
               lineHeight: 1.1,
               color: "#F5F1E8"
             }}>
@@ -174,55 +207,43 @@ export default function Login() {
             </h1>
           </div>
 
-          {/* Sample passes showing active vs revoked access */}
+          {/* Sample Club Access Passes (staggered layout) */}
           <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "460px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
-                RS
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "0px" }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>RS</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Robotics Society</div>
                 <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Member until 30 Jun 2027</div>
               </div>
-              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "4px 12px" }}>
-                Active
-              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "3px 10px" }}>Active</div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px", marginLeft: "20px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
-                AI
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "24px" }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>AI</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Coding & AI Club</div>
                 <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Member until 31 Mar 2027</div>
               </div>
-              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "4px 12px" }}>
-                Active
-              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "3px 10px" }}>Active</div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "12px", padding: "14px 18px", marginLeft: "40px" }}>
-              <div style={{ width: "38px", height: "38px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>
-                RK
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "48px" }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>RK</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Photography Club</div>
                 <div style={{ fontSize: "13px", color: "#A9B0BA" }}>Left in June</div>
               </div>
-              <div style={{ fontSize: "12px", fontWeight: 500, color: "#F2A98F", background: "#3A1D17", borderRadius: "999px", padding: "4px 12px" }}>
-                Access ended
-              </div>
+              <div style={{ fontSize: "12px", fontWeight: 500, color: "#F2A98F", background: "#3A1D17", borderRadius: "999px", padding: "3px 10px" }}>Access ended</div>
             </div>
           </div>
         </div>
 
         {/* Privacy Note */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", maxWidth: "460px" }}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ flex: "none", marginTop: "2px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", maxWidth: "440px" }}>
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true" style={{ flex: "none", marginTop: "2px" }}>
             <path d="M10 2l6 2.5v4.7c0 3.9-2.5 7-6 8.3-3.5-1.3-6-4.4-6-8.3V4.5L10 2z" stroke="#A9B0BA" strokeWidth="1.5" strokeLinejoin="round"></path>
           </svg>
-          <p style={{ margin: 0, fontSize: "13.5px", lineHeight: "1.55", color: "#A9B0BA" }}>
+          <p style={{ margin: 0, fontSize: "12.5px", lineHeight: "1.5", color: "#A9B0BA" }}>
             Your face video stays entirely in your browser. Only pass or fail is stored on our server.
           </p>
         </div>
@@ -230,32 +251,47 @@ export default function Login() {
 
       {/* RIGHT: Sign-in Form */}
       <div style={{
-        flex: "1 1 460px",
+        flex: "1 1 440px",
         minWidth: "320px",
         boxSizing: "border-box",
-        padding: "48px 56px",
+        padding: "24px 44px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        gap: "40px"
+        gap: "16px",
+        overflowY: "auto"
       }}>
-        <div style={{ display: "flex", justifyContent: "flex-end", fontSize: "14px", color: "#5A6270" }}>
-          <span>Have an invite?&nbsp;<Link to="/signup" style={{ fontWeight: 600, color: "#12171E" }}>Set up your account</Link></span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", color: "#5A6270" }}>
+          <Link
+            to="/admin/login"
+            style={{
+              fontWeight: 600,
+              color: "#8A4A0F",
+              background: "#F5ECD7",
+              padding: "3px 9px",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontSize: "12px"
+            }}
+          >
+            Administrator Access &rarr;
+          </Link>
+          <span>Have an invite?&nbsp;<Link to="/signup" style={{ fontWeight: 600, color: "#12171E" }}>Set up account</Link></span>
         </div>
 
-        <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "28px" }}>
+        <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "14px" }}>
           
           {/* Step indicator */}
-          <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", alignItems: "center", gap: "12px", fontSize: "13px", fontWeight: 500 }}>
-            <li style={{ display: "flex", alignItems: "center", gap: "8px", color: "#12171E" }}>
-              <span style={{ width: "22px", height: "22px", borderRadius: "50%", background: "#12171E", color: "#F3EFE7", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+          <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", alignItems: "center", gap: "10px", fontSize: "12.5px", fontWeight: 500 }}>
+            <li style={{ display: "flex", alignItems: "center", gap: "6px", color: "#12171E" }}>
+              <span style={{ width: "20px", height: "20px", borderRadius: "50%", background: "#12171E", color: "#F3EFE7", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px" }}>
                 1
               </span>
               Sign in
             </li>
-            <li aria-hidden="true" style={{ width: "32px", height: "1px", background: "#B9B2A3" }}></li>
-            <li style={{ display: "flex", alignItems: "center", gap: "8px", color: "#5A6270" }}>
-              <span style={{ width: "22px", height: "22px", borderRadius: "50%", border: "1px solid #8C8574", color: "#5A6270", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "12px" }}>
+            <li aria-hidden="true" style={{ width: "24px", height: "1px", background: "#B9B2A3" }}></li>
+            <li style={{ display: "flex", alignItems: "center", gap: "6px", color: "#5A6270" }}>
+              <span style={{ width: "20px", height: "20px", borderRadius: "50%", border: "1px solid #8C8574", color: "#5A6270", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px" }}>
                 2
               </span>
               Camera check
@@ -263,11 +299,11 @@ export default function Login() {
           </ol>
 
           {/* Heading */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <h2 style={{ margin: 0, fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "38px", lineHeight: 1.1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <h2 style={{ margin: 0, fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "30px", lineHeight: 1.1 }}>
               Welcome
             </h2>
-            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.5", color: "#5A6270" }}>
+            <p style={{ margin: 0, fontSize: "13.5px", lineHeight: "1.4", color: "#5A6270" }}>
               Sign in with the email your administrator invited.
             </p>
           </div>
@@ -277,35 +313,61 @@ export default function Login() {
               background: "#F6DDD4",
               border: "1px solid #9B3A22",
               borderRadius: "8px",
-              padding: "12px 16px",
+              padding: "10px 14px",
               color: "#9B3A22",
-              fontSize: "14px",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              fontSize: "13px"
             }}>
-              <AlertCircle size={18} style={{ flexShrink: 0 }} />
-              <div>{error}</div>
+              {error}
             </div>
           )}
 
           {/* Form */}
-          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label htmlFor="email" style={{ fontSize: "13.5px", fontWeight: 500 }}>Email Address</label>
+          <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {/* Full Name & Phone Number side-by-side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label htmlFor="fullname" style={{ fontSize: "12px", fontWeight: 500 }}>Full Name</label>
+                <input
+                  id="fullname"
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Rahul Sharma"
+                  className="input-editorial"
+                  style={{ height: "38px", fontSize: "13.5px", padding: "0 12px" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label htmlFor="phone" style={{ fontSize: "12px", fontWeight: 500 }}>Phone Number</label>
+                <input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="input-editorial"
+                  style={{ height: "38px", fontSize: "13.5px", padding: "0 12px" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <label htmlFor="email" style={{ fontSize: "12px", fontWeight: 500 }}>Email Address</label>
               <input
                 id="email"
-                type="email"
+                type="text"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@college.edu"
                 className="input-editorial"
+                style={{ height: "38px", fontSize: "13.5px", padding: "0 12px" }}
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <label htmlFor="password" style={{ fontSize: "13.5px", fontWeight: 500 }}>Password</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <label htmlFor="password" style={{ fontSize: "12px", fontWeight: 500 }}>Password</label>
               <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                 <input
                   id="password"
@@ -315,7 +377,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Your password"
                   className="input-editorial"
-                  style={{ paddingRight: "46px" }}
+                  style={{ height: "38px", fontSize: "13.5px", padding: "0 12px", paddingRight: "46px" }}
                 />
                 <button
                   type="button"
@@ -325,15 +387,15 @@ export default function Login() {
                     right: "10px",
                     background: "none",
                     border: "none",
-                    padding: "4px",
+                    padding: "3px 6px",
                     color: "#5A6270",
                     cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center"
+                    fontSize: "11px",
+                    fontWeight: 600
                   }}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? "Hide" : "Show"}
                 </button>
               </div>
             </div>
@@ -342,67 +404,65 @@ export default function Login() {
               type="submit"
               disabled={loading}
               className="btn-dark"
-              style={{ width: "100%", marginTop: "8px" }}
+              style={{ width: "100%", height: "42px", marginTop: "4px", fontSize: "14px" }}
             >
-              {loading ? "Verifying..." : "Continue"}
-              <ArrowRight size={16} />
+              {loading ? "Verifying..." : "Continue \u2192"}
             </button>
           </form>
 
-          {/* Demo Quick-Fill Bar */}
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "8px",
-            paddingTop: "16px",
-            borderTop: "1px solid #DDD6C7"
-          }}>
-            <button
-              type="button"
-              onClick={() => fillCredentials("rahul@club.edu", "RahulPassword123!")}
-              style={{
-                fontSize: "12px",
-                padding: "6px 12px",
-                background: "#EBE5D8",
-                border: "1px solid #DDD6C7",
-                borderRadius: "6px",
-                color: "#12171E"
-              }}
-            >
-              👤 Rahul (Member)
-            </button>
-            <button
-              type="button"
-              onClick={() => fillCredentials("admin@jadavpur.edu", "AdminPassword123!")}
-              style={{
-                fontSize: "12px",
-                padding: "6px 12px",
-                background: "#EBE5D8",
-                border: "1px solid #DDD6C7",
-                borderRadius: "6px",
-                color: "#12171E"
-              }}
-            >
-              🛡️ Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => fillCredentials("expired@club.edu", "ExpiredPassword123!")}
-              style={{
-                fontSize: "12px",
-                padding: "6px 12px",
-                background: "#EBE5D8",
-                border: "1px solid #DDD6C7",
-                borderRadius: "6px",
-                color: "#12171E"
-              }}
-            >
-              ⏳ Expired User
-            </button>
-          </div>
+          {/* Development Quick Fill (Only rendered in local development) */}
+          {import.meta.env.DEV && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingTop: "8px",
+              borderTop: "1px dashed #DDD6C7",
+              fontSize: "11.5px",
+              color: "#5A6270"
+            }}>
+              <span>Dev Auto-Fill:</span>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => fillDevUser("admin")}
+                  title="Keyboard shortcut: Alt+A"
+                  style={{
+                    background: "#EBE5D8",
+                    border: "1px solid #C4BCAF",
+                    borderRadius: "5px",
+                    padding: "3px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#12171E",
+                    cursor: "pointer"
+                  }}
+                >
+                  Admin (Alt+A)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fillDevUser("member")}
+                  title="Keyboard shortcut: Alt+M"
+                  style={{
+                    background: "#EBE5D8",
+                    border: "1px solid #C4BCAF",
+                    borderRadius: "5px",
+                    padding: "3px 8px",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#12171E",
+                    cursor: "pointer"
+                  }}
+                >
+                  Member (Alt+M)
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div style={{ fontSize: "12px", color: "#5A6270", textAlign: "center" }}>
+        <div style={{ fontSize: "11.5px", color: "#5A6270", textAlign: "center" }}>
           Sankalp SSO &bull; Self-hosted for university clubs and research teams
         </div>
       </div>
