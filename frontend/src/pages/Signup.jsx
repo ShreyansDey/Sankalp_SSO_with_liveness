@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest } from "../api";
-import { ArrowRight, Eye, EyeOff, AlertCircle } from "lucide-react";
 
 /**
  * ==============================================================================
@@ -118,12 +117,8 @@ export default function Signup() {
               padding: "12px 14px",
               color: "#9B3A22",
               fontSize: "13px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
               marginBottom: "20px"
             }}>
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <div>{error}</div>
             </div>
           )}
@@ -210,11 +205,13 @@ export default function Signup() {
                     border: "none",
                     color: "#5A6270",
                     cursor: "pointer",
-                    padding: "4px"
+                    padding: "4px 8px",
+                    fontSize: "12px",
+                    fontWeight: 600
                   }}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? "Hide" : "Show"}
                 </button>
               </div>
             </div>
@@ -234,12 +231,11 @@ export default function Signup() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: "8px",
                 cursor: loading ? "not-allowed" : "pointer",
                 marginTop: "6px"
               }}
             >
-              {loading ? "Activating..." : "Create Account & Verify"} <ArrowRight size={16} />
+              {loading ? "Activating..." : "Create Account & Verify \u2192"}
             </button>
           </form>
 
@@ -264,7 +260,7 @@ export default function Signup() {
                 cursor: "pointer"
               }}
             >
-              📋 Quick Fill: Demo Invite Token
+              Quick Fill: Demo Invite Token
             </button>
           </div>
         </div>
