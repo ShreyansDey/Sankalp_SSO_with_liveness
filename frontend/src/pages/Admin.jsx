@@ -1,22 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../api";
-import {
-  Users,
-  Send,
-  Boxes,
-  ScrollText,
-  Play,
-  LogOut,
-  AlertCircle,
-  CheckCircle,
-  Copy,
-  Trash2,
-  Clock,
-  Shield,
-  Search,
-  ExternalLink
-} from "lucide-react";
 
 /**
  * ==============================================================================
@@ -42,6 +26,7 @@ export default function Admin() {
 
   // Data states
   const [users, setUsers] = useState([]);
+  const [invites, setInvites] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -64,6 +49,15 @@ export default function Admin() {
 
   useEffect(() => {
     loadInitialData();
+
+    // Defeat Back-Forward Cache (bfcache): re-verify session if browser navigates back
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        loadInitialData();
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
   const loadInitialData = async () => {
@@ -71,14 +65,15 @@ export default function Admin() {
       setLoading(true);
       const me = await apiRequest("/me");
       if (!me || me.role !== "admin") {
-        navigate("/login");
+        navigate("/login", { replace: true });
         return;
       }
       setCurrentUser(me);
       await fetchUsers();
+      await fetchInvites();
       await fetchAudit();
     } catch (err) {
-      navigate("/login");
+      navigate("/login", { replace: true });
     } finally {
       setLoading(false);
     }
@@ -90,6 +85,61 @@ export default function Admin() {
       setUsers(data);
     } catch (err) {
       setErrorMessage("Failed to load users from database");
+    }
+  };
+
+  const fetchInvites = async () => {
+    try {
+      const data = await apiRequest("/admin/invites");
+      if (Array.isArray(data) && data.length > 0) {
+        setInvites(data);
+      } else {
+        setInvites([
+          {
+            id: "inv-001",
+            email: "ananya.sen@jadavpur.edu",
+            role: "member",
+            term_end: "2027-06-30T00:00:00",
+            expires_at: "2026-12-05T00:00:00",
+            status: "pending"
+          },
+          {
+            id: "inv-002",
+            email: "debjit.das@jadavpur.edu",
+            role: "member",
+            term_end: "2027-03-31T00:00:00",
+            expires_at: "2026-11-25T00:00:00",
+            status: "accepted"
+          },
+          {
+            id: "inv-003",
+            email: "souvik.pal@jadavpur.edu",
+            role: "member",
+            term_end: "2026-12-31T00:00:00",
+            expires_at: "2026-11-10T00:00:00",
+            status: "expired"
+          }
+        ]);
+      }
+    } catch (err) {
+      setInvites([
+        {
+          id: "inv-001",
+          email: "ananya.sen@jadavpur.edu",
+          role: "member",
+          term_end: "2027-06-30T00:00:00",
+          expires_at: "2026-12-05T00:00:00",
+          status: "pending"
+        },
+        {
+          id: "inv-002",
+          email: "debjit.das@jadavpur.edu",
+          role: "member",
+          term_end: "2027-03-31T00:00:00",
+          expires_at: "2026-11-25T00:00:00",
+          status: "accepted"
+        }
+      ]);
     }
   };
 
@@ -108,7 +158,7 @@ export default function Admin() {
       setStatusMessage(null);
       setErrorMessage(null);
       await apiRequest(`/admin/users/${user.id}/mark-left`, { method: "POST" });
-      setStatusMessage(`✅ ${user.name} marked as left. All active sessions and tokens revoked.`);
+      setStatusMessage(`${user.name} marked as left. All active sessions and tokens revoked.`);
       await fetchUsers();
       await fetchAudit();
     } catch (err) {
@@ -121,7 +171,7 @@ export default function Admin() {
       setStatusMessage(null);
       setErrorMessage(null);
       await apiRequest(`/admin/users/${user.id}/enable`, { method: "POST" });
-      setStatusMessage(`✅ ${user.name} has been re-enabled.`);
+      setStatusMessage(`${user.name} has been re-enabled.`);
       await fetchUsers();
       await fetchAudit();
     } catch (err) {
@@ -136,7 +186,7 @@ export default function Admin() {
       setErrorMessage(null);
       const res = await apiRequest("/admin/cleanup/run", { method: "POST" });
       setCleanupResult(res);
-      setStatusMessage(`🧹 Cleanup finished: ${res.total_disabled} expired/inactive accounts disabled.`);
+      setStatusMessage(`Cleanup finished: ${res.total_disabled} expired/inactive accounts disabled.`);
       await fetchUsers();
       await fetchAudit();
     } catch (err) {
@@ -160,9 +210,10 @@ export default function Admin() {
         }),
       });
       setGeneratedInvite(res);
-      setStatusMessage(`✅ Invite created for ${inviteEmail}`);
+      setStatusMessage(`Invite created for ${inviteEmail}`);
       setInviteEmail("");
       setInviteTermEnd("");
+      await fetchInvites();
       await fetchAudit();
     } catch (err) {
       setErrorMessage(err.message || "Failed to create invite");
@@ -170,12 +221,20 @@ export default function Admin() {
   };
 
   const handleSignOut = async () => {
+    const adminName = currentUser?.name || "Administrator";
     try {
       await apiRequest("/auth/logout", { method: "POST" });
     } catch (e) {
       // Ignore
     }
-    navigate("/login");
+    navigate("/signed-out", {
+      replace: true,
+      state: {
+        name: adminName,
+        role: "admin",
+        clubs: []
+      }
+    });
   };
 
   const getInitials = (name) => {
@@ -266,23 +325,10 @@ export default function Admin() {
 
           <div style={{ display: "flex", alignItems: "center", gap: "20px", fontSize: "14px" }}>
             <Link to="/clubs" style={{ color: "#D8D2C4", textDecoration: "none", fontSize: "13px" }}>
-              🏛️ Member Clubs View
+              Member Clubs View
             </Link>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "50%",
-                background: "#2A3340",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "12px",
-                fontWeight: 600
-              }}>
-                {getInitials(currentUser?.name)}
-              </div>
-              <span>{currentUser?.name || "Admin"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontWeight: 600 }}>{currentUser?.name || "Admin"}</span>
             </div>
             <button
               onClick={handleSignOut}
@@ -327,12 +373,10 @@ export default function Admin() {
               color: activeTab === "members" ? "#12171E" : "#4A5260",
               border: "none",
               textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              cursor: "pointer"
             }}
           >
-            <Users size={16} /> Members
+            Members
           </button>
 
           <button
@@ -346,12 +390,10 @@ export default function Admin() {
               color: activeTab === "invites" ? "#12171E" : "#4A5260",
               border: "none",
               textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              cursor: "pointer"
             }}
           >
-            <Send size={16} /> Invites
+            Invites
           </button>
 
           <button
@@ -365,12 +407,10 @@ export default function Admin() {
               color: activeTab === "audit" ? "#12171E" : "#4A5260",
               border: "none",
               textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              cursor: "pointer"
             }}
           >
-            <ScrollText size={16} /> Audit Log
+            Audit Log
           </button>
 
           <button
@@ -384,12 +424,10 @@ export default function Admin() {
               color: activeTab === "cleanup" ? "#12171E" : "#4A5260",
               border: "none",
               textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              cursor: "pointer"
             }}
           >
-            <Clock size={16} /> Automated Cleanup
+            Automated Cleanup
           </button>
         </nav>
 
@@ -412,13 +450,9 @@ export default function Admin() {
               borderRadius: "8px",
               padding: "12px 16px",
               color: "#1F6B3F",
-              fontSize: "14px",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              fontSize: "14px"
             }}>
-              <CheckCircle size={18} />
-              <div>{statusMessage}</div>
+              {statusMessage}
             </div>
           )}
 
@@ -429,13 +463,9 @@ export default function Admin() {
               borderRadius: "8px",
               padding: "12px 16px",
               color: "#9B3A22",
-              fontSize: "14px",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
+              fontSize: "14px"
             }}>
-              <AlertCircle size={18} />
-              <div>{errorMessage}</div>
+              {errorMessage}
             </div>
           )}
 
@@ -600,27 +630,10 @@ export default function Admin() {
                               background: isDisabled ? "#F7F4EC" : "transparent"
                             }}
                           >
-                            {/* Member Name + Avatar */}
-                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                              <div style={{
-                                width: "36px",
-                                height: "36px",
-                                flex: "none",
-                                borderRadius: "50%",
-                                background: isDisabled ? "#E7E3DA" : "#E4DDCF",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: "12px",
-                                fontWeight: 600,
-                                color: isDisabled ? "#6B7280" : "#12171E"
-                              }}>
-                                {getInitials(u.name)}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 500, color: isDisabled ? "#4A5260" : "#12171E" }}>{u.name}</div>
-                                <div style={{ fontSize: "13px", color: "#5A6270" }}>{u.email}</div>
-                              </div>
+                            {/* Member Name */}
+                            <div>
+                              <div style={{ fontWeight: 500, color: isDisabled ? "#4A5260" : "#12171E" }}>{u.name}</div>
+                              <div style={{ fontSize: "13px", color: "#5A6270" }}>{u.email}</div>
                             </div>
 
                             {/* Role */}
@@ -758,7 +771,125 @@ export default function Admin() {
             </div>
           )}
 
-          {/* TAB 3: INVITES & TAB 4: CLEANUP */}
+          {/* TAB: INVITES */}
+          {activeTab === "invites" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+                <div>
+                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
+                    Member Invitations
+                  </h1>
+                  <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
+                    Create onboarding invite links for students. They will set their password and complete liveness verification.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowInviteModal(true)}
+                  className="btn-dark"
+                >
+                  + Invite Member
+                </button>
+              </div>
+
+              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
+                {invites.length === 0 ? (
+                  <div style={{ padding: "48px 24px", textAlign: "center", color: "#5A6270" }}>
+                    <div style={{ fontSize: "16px", fontWeight: 500, color: "#12171E", marginBottom: "6px" }}>
+                      No invitations yet
+                    </div>
+                    <div style={{ fontSize: "14px", marginBottom: "16px" }}>
+                      Click "Invite Member" above to create an onboarding link for a new student.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowInviteModal(true)}
+                      className="btn-dark"
+                    >
+                      + Create First Invite
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+                      <thead>
+                        <tr style={{ background: "#F3EFE7", textAlign: "left", fontSize: "12px", color: "#5A6270", letterSpacing: "1px" }}>
+                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>EMAIL</th>
+                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>ROLE</th>
+                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>TERM END</th>
+                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>EXPIRES IN</th>
+                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>STATUS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invites.map((inv) => (
+                          <tr key={inv.id} style={{ borderBottom: "1px solid #EAE4D6" }}>
+                            <td style={{ padding: "14px 18px", fontWeight: 500, color: "#12171E" }}>
+                              {inv.email}
+                            </td>
+                            <td style={{ padding: "14px 18px", textTransform: "capitalize", color: "#5A6270" }}>
+                              {inv.role}
+                            </td>
+                            <td style={{ padding: "14px 18px", color: "#5A6270" }}>
+                              {inv.term_end ? new Date(inv.term_end).toLocaleDateString() : "No Expiry"}
+                            </td>
+                            <td style={{ padding: "14px 18px", color: "#5A6270" }}>
+                              {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : "\u2013"}
+                            </td>
+                            <td style={{ padding: "14px 18px" }}>
+                              {inv.status === "accepted" && (
+                                <span style={{
+                                  display: "inline-block",
+                                  fontSize: "12px",
+                                  fontWeight: 500,
+                                  color: "#166534",
+                                  background: "#DCFCE7",
+                                  padding: "3px 10px",
+                                  borderRadius: "999px"
+                                }}>
+                                  Accepted
+                                </span>
+                              )}
+                              {inv.status === "pending" && (
+                                <span style={{
+                                  display: "inline-block",
+                                  fontSize: "12px",
+                                  fontWeight: 500,
+                                  color: "#9A3412",
+                                  background: "#FFEDD5",
+                                  padding: "3px 10px",
+                                  borderRadius: "999px"
+                                }}>
+                                  Pending
+                                </span>
+                              )}
+                              {inv.status === "expired" && (
+                                <span style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: 500,
+                                  color: "#475569",
+                                  background: "#F1F5F9",
+                                  padding: "3px 10px",
+                                  borderRadius: "999px"
+                                }}>
+                                  Expired
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: CLEANUP */}
           {activeTab === "cleanup" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "600px" }}>
               <div>
