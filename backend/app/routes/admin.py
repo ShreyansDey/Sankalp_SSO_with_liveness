@@ -69,6 +69,33 @@ def create_invite(
         "expires_at": expires_at.isoformat()
     }
 
+@router.get("/invites")
+def list_invites(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """List all invites and their current status."""
+    invites = db.query(Invite).order_by(Invite.expires_at.desc()).all()
+    now = datetime.utcnow()
+    res = []
+    for inv in invites:
+        if inv.used_at:
+            status = "accepted"
+        elif inv.expires_at < now:
+            status = "expired"
+        else:
+            status = "pending"
+        res.append({
+            "id": inv.id,
+            "email": inv.email,
+            "role": inv.role,
+            "term_end": inv.term_end.isoformat() if inv.term_end else None,
+            "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
+            "used_at": inv.used_at.isoformat() if inv.used_at else None,
+            "status": status,
+        })
+    return res
+
 @router.get("/users")
 def list_users(
     status: Optional[str] = None,
