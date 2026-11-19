@@ -96,7 +96,7 @@ Sankalp_prep_pack/
 │   │   └── main.jsx                 # Vite application mount
 │   ├── index.html                   # MediaPipe Face Mesh & typography
 │   ├── package.json                 # Node dependencies
-│   ├── vite.config.js               # Vite bundler configuration (port 5173)
+│   ├── vite.config.js               # Vite bundler configuration (port 5180)
 │   └── Dockerfile                   # Frontend Docker container definition
 ├── demo-apps/                       # Connected client products
 │   ├── app-a/                       # Photography Club Portal (port 5174)
@@ -185,15 +185,15 @@ This automatically seeds the database, starts the FastAPI server, boots up Vite,
 
 ### Method 2: Manual Multi-Terminal Startup
 
-1. **Start Backend (Port 8000)**:
+1. **Start Backend (Port 8001)**:
    ```bash
    cd backend
    pip install -r requirements.txt
    python seed.py
-   uvicorn app.main:app --reload --port 8000
+   uvicorn app.main:app --reload --port 8001
    ```
 
-2. **Start Frontend (Port 5173)**:
+2. **Start Frontend (Port 5180)**:
    ```bash
    cd frontend
    npm install
@@ -239,8 +239,8 @@ Sankalp_SSO/
 │       ├── 05-cleanup-job.md    # Automated APScheduler Lifecycle Cleanup
 │       ├── 06-audit-log.md      # Security Audit Trail
 │       └── 07-demo-apps.md      # 5 Connected University Campus Clubs
-├── backend/                     # FastAPI Backend Server (Port 8000)
-├── frontend/                    # Central Login & Clubs Hub (Port 5173, React + Vite)
+├── backend/                     # FastAPI Backend Server (Port 8001)
+├── frontend/                    # Central Login & Clubs Hub (Port 5180, React + Vite)
 ├── demo-apps/                   # 5 Connected University Portals (Ports 5174 - 5178)
 ├── scripts/                     # Start/Stop Automation & Service Manager
 ├── agents.md                    # Assistant & Developer Working Rules
@@ -280,7 +280,7 @@ Sankalp_SSO/
    - The system detects lack of motion/blinking, the 30-second timer expires, and the attempt is logged as `liveness_fail`.
 
 4. **Step 4 — Rahul Leaves (45s)**:
-   - Open `http://localhost:5173/admin` in a new tab as Admin (`admin@jadavpur.edu`).
+   - Open `http://localhost:5180/admin` in a new tab as Admin (`admin@jadavpur.edu`).
    - Find Rahul in the member list and click **"Mark as left"**.
    - Switch back to App A and App B tabs and refresh or click "Test Access Token".
    - **Both apps immediately display "⛔ ACCESS DENIED"**.
