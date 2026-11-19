@@ -4,7 +4,9 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Liveness from "./pages/Liveness";
 import Admin from "./pages/Admin";
+import AdminLogin from "./pages/AdminLogin";
 import Clubs from "./pages/Clubs";
+import Signout from "./pages/Signout";
 
 /**
  * ==============================================================================
@@ -33,7 +35,9 @@ export default function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/liveness" element={<Liveness />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/clubs" element={<Clubs />} />
+        <Route path="/signed-out" element={<Signout />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
