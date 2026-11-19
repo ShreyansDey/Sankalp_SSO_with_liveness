@@ -4,18 +4,18 @@
  * ==============================================================================
  * In plain words (Layman):
  *   This file is the telephone between our frontend pages (the screens students
- *   and admins see) and the backend server on port 8000. It makes sure every
+ *   and admins see) and the backend server on port 8001. It makes sure every
  *   request automatically carries the student's secure session cookie so they
  *   stay logged in across pages.
  *
  * Technical Architecture:
- *   - Base URL: http://localhost:8000
+ *   - Base URL: http://localhost:8001
  *   - Automatically includes `credentials: "include"` for HttpOnly cookie forwarding
  *   - Parses JSON payloads and handles network errors with structured error exceptions
  * ==============================================================================
  */
 
-export const API_BASE = "http://localhost:8000";
+export const API_BASE = "http://localhost:8001";
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
