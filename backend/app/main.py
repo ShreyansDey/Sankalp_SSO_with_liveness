@@ -70,13 +70,16 @@ app = FastAPI(
 # ==============================================================================
 allowed_origins = [
     FRONTEND_ORIGIN,
+    "http://localhost:5180", "http://127.0.0.1:5180",  # Central Login & Admin (Port 5180)
+    "http://localhost:5173", "http://127.0.0.1:5173",  # Central Login & Admin (Legacy port)
     # 5 Connected University Clubs:
     "http://localhost:5174", "http://127.0.0.1:5174",  # Club 1: Photography Club
     "http://localhost:5175", "http://127.0.0.1:5175",  # Club 2: Robotics Lab
     "http://localhost:5176", "http://127.0.0.1:5176",  # Club 3: Coding & AI Club
     "http://localhost:5177", "http://127.0.0.1:5177",  # Club 4: Chess & Mind Sports
     "http://localhost:5178", "http://127.0.0.1:5178",  # Club 5: Athletics & Sports
-    "http://localhost:8000", "http://127.0.0.1:8000"   # Backend API
+    "http://localhost:8001", "http://127.0.0.1:8001",  # Backend API (Port 8001)
+    "http://localhost:8000", "http://127.0.0.1:8000"   # Backend API (Legacy port)
 ]
 
 app.add_middleware(
