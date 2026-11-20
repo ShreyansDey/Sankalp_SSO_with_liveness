@@ -181,9 +181,9 @@ def admin_login(
     if not user or user.role != "admin" or not is_valid_pw:
         log_audit(
             db,
-            action="admin_login_fail",
+            action="login_fail",
             actor_id=user.id if user else None,
-            detail={"email": payload.email, "reason": "invalid_admin_credentials"}
+            detail={"email": payload.email, "role": "admin", "reason": "invalid_admin_credentials"}
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -216,7 +216,7 @@ def admin_login(
 
     log_audit(
         db,
-        action="admin_login_ok",
+        action="login_ok",
         actor_id=user.id,
         target_id=user.id,
         detail={"session_id": sso_sess.id, "role": "admin", "via": "admin_portal"}

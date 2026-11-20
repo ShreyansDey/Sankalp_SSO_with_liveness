@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
     [switch]$Background,
-    [switch]$Foreground
+    [switch]$Foreground,
+    [switch]$Windowed
 )
 
 $RootDir = Split-Path -Parent $PSScriptRoot
@@ -12,22 +13,34 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  Starting Sankalp SSO & Digital Identity System" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-if ($Background) {
-    python scripts/manager.py start
-} elseif ($Foreground) {
-    python scripts/manager.py start --fg
+# Resolve Python command (venv if exists, otherwise system python)
+$VenvPath = "$RootDir/backend/.venv/Scripts/python.exe"
+if (Test-Path $VenvPath) {
+    $PyCmd = "& '$VenvPath'"
+    $PyDirect = $VenvPath
 } else {
-    Write-Host "Launching services in live interactive windows..." -ForegroundColor Yellow
-    $VenvPython = "$RootDir/backend/.venv/Scripts/python.exe"
-    & "$VenvPython" "$RootDir/backend/seed.py"
+    $PyCmd = "python"
+    $PyDirect = "python"
+}
 
-    # 1. Backend Server (FastAPI on Port 8001)
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/backend'; & '$VenvPython' -m uvicorn app.main:app --reload --port 8001"
+if ($Foreground) {
+    python scripts/manager.py start --fg
+} elseif ($Background) {
+    python scripts/manager.py start
+} else {
+    # Default / Windowed mode: launches in live interactive windows with live logs
+    Write-Host "Launching services in live interactive windows..." -ForegroundColor Yellow
     
-    # 2. 5 Connected Campus Clubs (Ports 5174 through 5178)
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/demo-apps'; & '$VenvPython' serve_demo_apps.py"
+    # 1. Seed database first
+    & $PyDirect "$RootDir/backend/seed.py"
+
+    # 2. Backend Server (FastAPI on Port 8001)
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/backend'; $PyCmd -m uvicorn app.main:app --reload --port 8001"
     
-    # 3. Central Login & Clubs Hub (Vite on Port 5180)
+    # 3. 5 Connected Campus Clubs (Ports 5174 through 5178)
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/demo-apps'; $PyCmd serve_demo_apps.py"
+    
+    # 4. Central Login & Clubs Hub (Vite on Port 5180)
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$RootDir/frontend'; npm run dev"
 
     Write-Host "==========================================================" -ForegroundColor Green

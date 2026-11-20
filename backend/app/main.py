@@ -110,6 +110,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"error": "validation_error", "message": f"{field}: {msg}"}
     )
 
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"error": "server_error", "message": "An internal server error occurred."}
+    )
+
 # Include routes
 app.include_router(auth.router)
 app.include_router(liveness.router)

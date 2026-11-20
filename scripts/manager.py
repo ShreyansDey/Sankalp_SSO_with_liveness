@@ -149,6 +149,10 @@ def start(foreground=False):
     frontend_log = open(LOG_DIR / "frontend.log", "a")
     demos_log = open(LOG_DIR / "demo-apps.log", "a")
 
+    creation_flags = 0
+    if sys.platform == "win32":
+        creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+
     pids = {}
 
     # 1. Start Backend (FastAPI on 8001)
@@ -157,7 +161,8 @@ def start(foreground=False):
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"],
         cwd=str(ROOT_DIR / "backend"),
         stdout=backend_log,
-        stderr=backend_log
+        stderr=backend_log,
+        creationflags=creation_flags
     )
     pids["backend"] = p_backend.pid
 
@@ -167,7 +172,8 @@ def start(foreground=False):
         [sys.executable, "serve_demo_apps.py"],
         cwd=str(ROOT_DIR / "demo-apps"),
         stdout=demos_log,
-        stderr=demos_log
+        stderr=demos_log,
+        creationflags=creation_flags
     )
     pids["demos"] = p_demos.pid
 
@@ -178,7 +184,8 @@ def start(foreground=False):
         [npm_cmd, "run", "dev"],
         cwd=str(ROOT_DIR / "frontend"),
         stdout=frontend_log,
-        stderr=frontend_log
+        stderr=frontend_log,
+        creationflags=creation_flags
     )
     pids["frontend"] = p_frontend.pid
 
