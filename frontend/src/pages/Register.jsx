@@ -20,6 +20,13 @@ import { apiRequest } from "../api";
 export default function Register() {
   const navigate = useNavigate();
 
+  // Step state: 'details' -> 'consent'
+  const [step, setStep] = useState("details");
+
+  // Consent states
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [declineNotice, setDeclineNotice] = useState(false);
+
   // Form states
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -31,6 +38,8 @@ export default function Register() {
   const [facePhoto, setFacePhoto] = useState(""); // Base64 data URL
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -46,6 +55,76 @@ export default function Register() {
   const [submitted, setSubmitted] = useState(false);
   const [submittedData, setSubmittedData] = useState(null);
 
+  // Enumerate video devices and prioritize computer/device internal camera by default
+  const refreshDevices = async (activeStream = null) => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+
+      if (videoInputs.length > 0) {
+        const saved = localStorage.getItem("sankalp_preferred_camera");
+        const savedExists = videoInputs.some((d) => d.deviceId === saved);
+
+        // Check if activeStream has a deviceId
+        let activeTrackDeviceId = null;
+        if (activeStream) {
+          const videoTrack = activeStream.getVideoTracks()[0];
+          if (videoTrack?.getSettings) {
+            activeTrackDeviceId = videoTrack.getSettings().deviceId;
+          }
+        }
+
+        if (activeTrackDeviceId && videoInputs.some((d) => d.deviceId === activeTrackDeviceId)) {
+          setSelectedDeviceId(activeTrackDeviceId);
+          localStorage.setItem("sankalp_preferred_camera", activeTrackDeviceId);
+        } else if (saved && savedExists) {
+          setSelectedDeviceId(saved);
+        } else {
+          // Default: Prioritize built-in computer / device camera (integrated/internal/webcam/facetime/front)
+          // Deprioritize secondary phone/virtual link cameras as default
+          const integrated = videoInputs.find((d) => {
+            const label = (d.label || "").toLowerCase();
+            return (
+              (label.includes("integrated") ||
+                label.includes("internal") ||
+                label.includes("built-in") ||
+                label.includes("webcam") ||
+                label.includes("facetime") ||
+                label.includes("hd camera") ||
+                label.includes("front") ||
+                label.includes("user")) &&
+              !label.includes("oppo") &&
+              !label.includes("phone") &&
+              !label.includes("link") &&
+              !label.includes("virtual") &&
+              !label.includes("droidcam") &&
+              !label.includes("camo") &&
+              !label.includes("obs") &&
+              !label.includes("back") &&
+              !label.includes("rear")
+            );
+          });
+          const chosen = integrated ? integrated.deviceId : videoInputs[0].deviceId;
+          setSelectedDeviceId(chosen);
+          localStorage.setItem("sankalp_preferred_camera", chosen);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not list video devices:", err);
+    }
+  };
+
+  useEffect(() => {
+    refreshDevices();
+    const handleDeviceChange = () => refreshDevices(streamRef.current);
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+      return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    }
+  }, []);
+
   // Cleanup webcam stream on unmount
   useEffect(() => {
     return () => {
@@ -54,20 +133,93 @@ export default function Register() {
   }, []);
 
   // WebCam controls
-  const startCamera = async () => {
+  const startCamera = async (targetDeviceId = null) => {
+    if (typeof targetDeviceId !== "string") {
+      targetDeviceId = null;
+    }
     setCameraError(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    const devId = targetDeviceId || selectedDeviceId || localStorage.getItem("sankalp_preferred_camera");
+
+    const constraints = {
+      video: devId
+        ? { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } }
+        : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    };
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      setIsCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
+        videoRef.current.play().catch(() => {});
       }
-      setIsCameraActive(true);
+      refreshDevices(stream);
     } catch (err) {
-      setCameraError("Camera access denied or unavailable. You may upload a recent photo instead.");
+      // If devId was specified and failed, fallback to generic user-facing device camera
+      if (devId) {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+          });
+          streamRef.current = fallbackStream;
+          setIsCameraActive(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.onloadedmetadata = () => {
+              videoRef.current?.play().catch(() => {});
+            };
+            videoRef.current.play().catch(() => {});
+          }
+          refreshDevices(fallbackStream);
+          return;
+        } catch (fallbackErr) {
+          // both attempts failed
+        }
+      }
+      setCameraError("Camera access denied or unavailable (" + (err.message || "check permissions") + "). You may upload a recent photo instead.");
       setIsCameraActive(false);
+    }
+  };
+
+  // Switch between available cameras (Computer vs Phone / External)
+  const switchCamera = async (newDeviceId) => {
+    setSelectedDeviceId(newDeviceId);
+    localStorage.setItem("sankalp_preferred_camera", newDeviceId);
+    if (isCameraActive) {
+      await startCamera(newDeviceId);
+    }
+  };
+
+  // Ensure stream is attached whenever isCameraActive changes and video element is mounted
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isCameraActive]);
+
+  const attachVideoRef = (el) => {
+    videoRef.current = el;
+    if (el && streamRef.current) {
+      el.srcObject = streamRef.current;
+      el.onloadedmetadata = () => {
+        el.play().catch(() => {});
+      };
+      el.play().catch(() => {});
     }
   };
 
@@ -81,12 +233,18 @@ export default function Register() {
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
+    const v = videoRef.current;
+    const w = v.videoWidth || 640;
+    const h = v.videoHeight || 480;
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    // Draw mirrored to match viewfinder
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(v, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
     setFacePhoto(dataUrl);
     stopCamera();
   };
@@ -135,8 +293,8 @@ export default function Register() {
     reader.readAsDataURL(file);
   };
 
-  // Submit to Admin Approval
-  const handleSubmit = async (e) => {
+  // Advance to DPDP Consent Screen after form validation
+  const handleProceedToConsent = (e) => {
     e.preventDefault();
     setError(null);
 
@@ -166,6 +324,18 @@ export default function Register() {
       return;
     }
 
+    setStep("consent");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Submit to Admin Approval once consent is granted
+  const handleConfirmSubmit = async () => {
+    if (!consentChecked) {
+      setError("You must review and check the consent box to proceed.");
+      return;
+    }
+
+    setError(null);
     setLoading(true);
 
     try {
@@ -178,7 +348,8 @@ export default function Register() {
           password,
           face_photo: facePhoto,
           document_base64: documentBase64,
-          document_name: documentName || "supporting_document.pdf"
+          document_name: documentName || "supporting_document.pdf",
+          consent_given: true
         })
       });
 
@@ -191,12 +362,19 @@ export default function Register() {
       });
       setSubmitted(true);
     } catch (err) {
-      if (err.error === "user_exists") {
+      console.error("Registration error:", err);
+      const detail = err?.detail;
+      const errCode = typeof detail === "object" && detail !== null ? detail.error : err?.error;
+      const errMsg = typeof detail === "object" && detail !== null 
+        ? detail.message 
+        : (typeof detail === "string" ? detail : (err?.message || "Failed to submit application. Please check your connection."));
+
+      if (errCode === "user_exists") {
         setError("An account with this email already exists. Please log in directly.");
-      } else if (err.error === "already_pending") {
+      } else if (errCode === "already_pending") {
         setError("An application for this email has already been submitted and is waiting for administrator approval.");
       } else {
-        setError(err.message || "Failed to submit application. Please check your connection.");
+        setError(errMsg);
       }
     } finally {
       setLoading(false);
@@ -403,8 +581,8 @@ export default function Register() {
       fontFamily: "'Inter', system-ui, sans-serif"
     }}>
       {/* Header */}
-      <header style={{ borderBottom: "1px solid #DDD6C7", padding: "16px 40px", background: "#FBF9F4" }}>
-        <div style={{ maxWidth: "900px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <header className="auth-header">
+        <div style={{ maxWidth: "900px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ width: "24px", height: "24px", borderRadius: "50%", border: "2.5px solid #12171E", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#D9822B" }}></div>
@@ -413,35 +591,80 @@ export default function Register() {
               Real Access
             </span>
           </div>
-          <Link to="/login" style={{ color: "#12171E", fontSize: "13.5px", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+          <Link to="/login" style={{ color: "#12171E", fontSize: "13px", textDecoration: "underline", textUnderlineOffset: "3px" }}>
             Already have an account? Sign In &rarr;
           </Link>
         </div>
       </header>
 
       {/* Main Registration Card */}
-      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "30px 16px" }}>
-        <div style={{
-          background: "#FBF9F4",
-          border: "1px solid #DDD6C7",
-          borderRadius: "16px",
-          padding: "36px 40px",
-          maxWidth: "520px",
-          width: "100%",
-          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.04)"
+      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 14px" }}>
+        <div className="auth-card" style={{
+          maxWidth: step === "consent" ? "680px" : "520px",
         }}>
-          {/* Header Title */}
-          <div style={{ marginBottom: "20px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "1.8px", color: "#D9822B", marginBottom: "4px" }}>
-              ACCOUNT REGISTRATION
-            </div>
-            <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px", fontWeight: "500", margin: "0 0 6px" }}>
-              Create New Account
-            </h1>
-            <p style={{ color: "#5A6270", fontSize: "13.5px", lineHeight: "1.4", margin: 0 }}>
-              All fields are compulsory. Fill out your details, provide a recent live photo and a supporting document, and submit for administrator approval.
-            </p>
-          </div>
+          {/* Stepper Indicator */}
+          <ol className="stepper-list">
+            <li className="stepper-item" style={{ color: step === "details" ? "#12171E" : "#1F6B3F" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                background: step === "details" ? "#12171E" : "#1F6B3F",
+                color: "#F3EFE7",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 600,
+                flexShrink: 0
+              }}>
+                1
+              </span>
+              <span className="stepper-label-full">Registration Details</span>
+              <span className="stepper-label-short">Details</span>
+            </li>
+            <li aria-hidden="true" className="stepper-line"></li>
+            <li className="stepper-item" style={{ color: step === "consent" ? "#12171E" : "#7A8290" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                background: step === "consent" ? "#12171E" : "transparent",
+                border: step === "consent" ? "none" : "1px solid #B9B2A3",
+                color: step === "consent" ? "#F3EFE7" : "#7A8290",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 600,
+                flexShrink: 0
+              }}>
+                2
+              </span>
+              <span className="stepper-label-full">Biometric Consent</span>
+              <span className="stepper-label-short">Consent</span>
+            </li>
+            <li aria-hidden="true" className="stepper-line"></li>
+            <li className="stepper-item" style={{ color: "#7A8290" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                border: "1px solid #B9B2A3",
+                color: "#7A8290",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 600,
+                flexShrink: 0
+              }}>
+                3
+              </span>
+              <span className="stepper-label-full">Admin Approval</span>
+              <span className="stepper-label-short">Approval</span>
+            </li>
+          </ol>
 
           {/* Error Banner */}
           {error && (
@@ -457,16 +680,32 @@ export default function Register() {
               alignItems: "center",
               gap: "8px"
             }}>
-              <span>⚠</span>
+              <span style={{ fontWeight: 700 }}>[!]</span>
               <span>{error}</span>
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* STEP 1: FORM DETAILS */}
+          {step === "details" && (
+            <div>
+              {/* Header Title */}
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "1.8px", color: "#D9822B", marginBottom: "4px" }}>
+                  ACCOUNT REGISTRATION
+                </div>
+                <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px", fontWeight: "500", margin: "0 0 6px" }}>
+                  Create New Account
+                </h1>
+                <p style={{ color: "#5A6270", fontSize: "13.5px", lineHeight: "1.4", margin: 0 }}>
+                  All fields are compulsory. Fill out your details, provide a recent live photo and a supporting document, and submit for administrator approval.
+                </p>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleProceedToConsent} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             
             {/* 1. Full Name & Phone Number */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="form-grid-2col">
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
                   Full Name <span style={{ color: "#DC2626" }}>*</span>
@@ -605,6 +844,7 @@ export default function Register() {
 
               {/* Live Camera Viewfinder */}
               {isCameraActive && (
+                <>
                 <div style={{
                   position: "relative",
                   width: "100%",
@@ -617,10 +857,24 @@ export default function Register() {
                   alignItems: "center"
                 }}>
                   <video
-                    ref={videoRef}
+                    ref={attachVideoRef}
                     autoPlay
                     playsInline
-                    style={{ width: "100%", maxHeight: "240px", objectFit: "cover" }}
+                    muted
+                    onLoadedMetadata={() => {
+                      if (videoRef.current) {
+                        videoRef.current.play().catch(() => {});
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      height: "240px",
+                      minHeight: "240px",
+                      maxHeight: "240px",
+                      objectFit: "cover",
+                      transform: "scaleX(-1)",
+                      display: "block"
+                    }}
                   />
                   {/* Face outline guide */}
                   <div style={{
@@ -654,7 +908,7 @@ export default function Register() {
                         cursor: "pointer"
                       }}
                     >
-                      📸 Snap Photo
+                      Snap Photo
                     </button>
                     <button
                       type="button"
@@ -673,6 +927,98 @@ export default function Register() {
                       Cancel
                     </button>
                   </div>
+                </div>
+
+                {/* Switch Camera Controls while camera is live */}
+                {videoDevices.length > 1 && (
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                    background: "#EBE5D8",
+                    border: "1px solid #C4BCAF",
+                    borderRadius: "7px",
+                    padding: "7px 10px",
+                    marginBottom: "10px",
+                    fontSize: "12px"
+                  }}>
+                    <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap" }}>
+                      Switch Camera:
+                    </span>
+                    <select
+                      value={selectedDeviceId}
+                      onChange={(e) => switchCamera(e.target.value)}
+                      style={{
+                        flex: 1,
+                        maxWidth: "260px",
+                        height: "28px",
+                        padding: "0 6px",
+                        borderRadius: "4px",
+                        border: "1px solid #B0A798",
+                        background: "#FFFFFF",
+                        fontSize: "12px",
+                        color: "#12171E",
+                        cursor: "pointer"
+                      }}
+                    >
+                      {videoDevices.map((dev, idx) => {
+                        const label = dev.label || `Camera ${idx + 1}`;
+                        const isIntegrated = (label.toLowerCase().includes("integrated") || label.toLowerCase().includes("internal") || label.toLowerCase().includes("webcam") || label.toLowerCase().includes("facetime") || label.toLowerCase().includes("hd camera"));
+                        return (
+                          <option key={dev.deviceId || idx} value={dev.deviceId}>
+                            {label} {isIntegrated ? "(Computer Camera)" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+                </>
+              )}
+
+              {/* Camera Preference Selector before camera is opened */}
+              {!isCameraActive && !facePhoto && videoDevices.length > 1 && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "8px",
+                  background: "#FBF9F4",
+                  border: "1px solid #DDD6C7",
+                  borderRadius: "6px",
+                  padding: "6px 10px",
+                  marginBottom: "10px",
+                  fontSize: "12px",
+                  color: "#5A6270"
+                }}>
+                  <span style={{ fontWeight: 500, color: "#12171E", whiteSpace: "nowrap" }}>Camera:</span>
+                  <select
+                    value={selectedDeviceId}
+                    onChange={(e) => switchCamera(e.target.value)}
+                    style={{
+                      flex: 1,
+                      maxWidth: "260px",
+                      height: "28px",
+                      padding: "0 6px",
+                      borderRadius: "4px",
+                      border: "1px solid #C4BCAF",
+                      background: "#FFFFFF",
+                      fontSize: "12px",
+                      color: "#12171E",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {videoDevices.map((dev, idx) => {
+                      const label = dev.label || `Camera ${idx + 1}`;
+                      const isIntegrated = (label.toLowerCase().includes("integrated") || label.toLowerCase().includes("internal") || label.toLowerCase().includes("webcam") || label.toLowerCase().includes("facetime") || label.toLowerCase().includes("hd camera"));
+                      return (
+                        <option key={dev.deviceId || idx} value={dev.deviceId}>
+                          {label} {isIntegrated ? "(Computer Camera)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
               )}
 
@@ -747,7 +1093,7 @@ export default function Register() {
                       gap: "6px"
                     }}
                   >
-                    <span>📷</span> Use Camera to Snap Photo
+                    Use Camera to Snap Photo
                   </button>
                   <label
                     style={{
@@ -766,7 +1112,7 @@ export default function Register() {
                       gap: "6px"
                     }}
                   >
-                    <span>📁</span> Upload Image
+                    Upload Image
                     <input
                       type="file"
                       accept="image/*"
@@ -817,9 +1163,11 @@ export default function Register() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: "18px"
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "#5A6270"
                     }}>
-                      📄
+                      DOC
                     </div>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -859,7 +1207,7 @@ export default function Register() {
                   cursor: "pointer",
                   textAlign: "center"
                 }}>
-                  <div style={{ fontSize: "22px", marginBottom: "4px" }}>📎</div>
+                  <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "1px", color: "#8A4A0F", marginBottom: "4px" }}>ATTACH DOCUMENT</div>
                   <div style={{ fontSize: "12.5px", fontWeight: 600, color: "#12171E" }}>
                     Click to select supporting document
                   </div>
@@ -876,7 +1224,7 @@ export default function Register() {
               )}
             </div>
 
-            {/* Submit Button named "Sent to Admin Approval" in place of continue */}
+            {/* Submit Button to proceed to DPDP Consent */}
             <button
               type="submit"
               disabled={loading}
@@ -897,7 +1245,7 @@ export default function Register() {
                 marginTop: "6px"
               }}
             >
-              {loading ? "Submitting Application..." : "Sent to Admin Approval"}
+              Continue to Biometric Consent &rarr;
             </button>
           </form>
 
@@ -921,6 +1269,199 @@ export default function Register() {
               Auto-Fill All Compulsory Fields
             </button>
           </div>
+        </div>
+      )}
+
+      {/* STEP 2: DPDP ACT 2023 INFORMED BIOMETRIC CONSENT FORM */}
+      {step === "consent" && (
+        <div>
+          <div style={{ marginBottom: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <span style={{ fontSize: "11px", fontWeight: "700", letterSpacing: "1.6px", color: "#1F6B3F", background: "#DDEFE2", padding: "3px 8px", borderRadius: "4px" }}>
+                DPDP ACT 2023 COMPLIANT
+              </span>
+              <span style={{ fontSize: "12px", color: "#5A6270" }}>Privacy &amp; Data Charter</span>
+            </div>
+            <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "30px", fontWeight: "500", margin: "0 0 6px" }}>
+              Digital Identity &amp; Biometric Consent
+            </h1>
+            <p style={{ color: "#5A6270", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>
+              Before your registration is forwarded for administrator approval, please review how your identity verification data is handled, stored, and permanently destroyed.
+            </p>
+          </div>
+
+          {/* Applicant & Documents Summary */}
+          <div className="summary-box">
+            <div className="summary-box-left">
+              {facePhoto && (
+                <img
+                  src={facePhoto}
+                  alt="Applicant preview"
+                  style={{ width: "42px", height: "42px", borderRadius: "50%", objectFit: "cover", border: "1.5px solid #D9822B", flexShrink: 0 }}
+                />
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: "#12171E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
+                <div style={{ color: "#5A6270", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email} &bull; {phone}</div>
+              </div>
+            </div>
+            <div className="summary-box-right">
+              <div>Document: <strong style={{ color: "#12171E" }}>{documentName || "Attached"}</strong></div>
+              <div>Size: {documentSize || "Ready"}</div>
+            </div>
+          </div>
+
+          {/* The 4 Core Consent Cards */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "22px" }}>
+            
+            {/* 1. What we collect */}
+            <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+              <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                1. What data do we collect?
+              </div>
+              <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                Live camera portrait snapshot, supporting student identification card, and facial geometry ratios. <strong>Your raw camera video is processed entirely in your local browser and never uploaded.</strong> Only the captured portrait and mathematical embeddings are securely transmitted for administrator verification.
+              </div>
+            </div>
+
+            {/* 2. Why we collect it */}
+            <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+              <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                2. Why do we collect it?
+              </div>
+              <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                To eliminate unauthorized access, bot accounts, and impersonation. This guarantees that only genuine, living physical human beings affiliated with the institution can obtain active club credentials.
+              </div>
+            </div>
+
+            {/* 3. Where will it be used */}
+            <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+              <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                3. Where will it be used?
+              </div>
+              <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                Exclusively within the campus self-hosted single sign-on system for university club authorization (Robotics, Coding, Photography, Athletics, Chess). <strong>Never shared with third parties, advertisers, or outside vendors.</strong>
+              </div>
+            </div>
+
+            {/* 4. What happens when you leave */}
+            <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+              <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                4. What happens when you leave? (Right to Erasure)
+              </div>
+              <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                Upon graduation, term expiration, or membership conclusion, all active sessions and tokens are revoked immediately. Your account records and biometric embeddings are permanently destroyed during automated cleanup cycles in full compliance with the Digital Personal Data Protection (DPDP) Act, 2023.
+              </div>
+            </div>
+
+          </div>
+
+          {/* Consent Checkbox */}
+          <div style={{
+            background: consentChecked ? "#EBF5EE" : "#F8F5EE",
+            border: consentChecked ? "1px solid #1F6B3F" : "1px solid #C4BCAF",
+            borderRadius: "10px",
+            padding: "14px 16px",
+            marginBottom: "20px",
+            transition: "all 0.15s ease"
+          }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={consentChecked}
+                onChange={(e) => {
+                  setConsentChecked(e.target.checked);
+                  if (e.target.checked) setDeclineNotice(false);
+                }}
+                style={{ width: "18px", height: "18px", marginTop: "2px", cursor: "pointer", accentColor: "#12171E" }}
+              />
+              <span style={{ fontSize: "13px", lineHeight: "1.45", color: "#12171E", fontWeight: 500 }}>
+                I understand and give my explicit, informed consent for the collection and processing of my live portrait and student identification record for campus single sign-on under the Digital Personal Data Protection (DPDP) Act, 2023.
+              </span>
+            </label>
+          </div>
+
+          {/* Decline Notice */}
+          {declineNotice && (
+            <div style={{
+              background: "#FBF3D5",
+              border: "1px solid #D9822B",
+              borderRadius: "8px",
+              padding: "12px 14px",
+              fontSize: "13px",
+              color: "#8A4A0F",
+              marginBottom: "16px",
+              lineHeight: "1.45"
+            }}>
+              Identity and biometric consent is required under campus security policy to protect club resources and prevent proxy access. Without consent, your application cannot be submitted for administrator approval. You can return to review or exit to the sign-in page.
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <button
+              type="button"
+              disabled={!consentChecked || loading}
+              onClick={handleConfirmSubmit}
+              style={{
+                height: "46px",
+                width: "100%",
+                background: "#12171E",
+                color: "#F5F1E8",
+                border: 0,
+                borderRadius: "8px",
+                fontSize: "14.5px",
+                fontWeight: "600",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                opacity: (!consentChecked || loading) ? 0.5 : 1,
+                cursor: (!consentChecked || loading) ? "not-allowed" : "pointer"
+              }}
+            >
+              {loading ? "Submitting Application..." : "I Consent & Sent to Admin Approval \u2192"}
+            </button>
+
+            <div className="action-button-group">
+              <button
+                type="button"
+                onClick={() => { setStep("details"); setError(null); }}
+                style={{
+                  flex: 1,
+                  height: "38px",
+                  background: "#EBE5D8",
+                  color: "#12171E",
+                  border: "1px solid #C4BCAF",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  cursor: "pointer"
+                }}
+              >
+                &larr; Back to Edit Details
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDeclineNotice(!declineNotice)}
+                style={{
+                  flex: 1,
+                  height: "38px",
+                  background: "transparent",
+                  color: "#5A6270",
+                  border: "1px solid #DDD6C7",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  cursor: "pointer"
+                }}
+              >
+                I Decline Consent
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       </main>
     </div>

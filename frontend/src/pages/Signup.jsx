@@ -1,18 +1,23 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest } from "../api";
 
 /**
  * ==============================================================================
- * REAL ACCESS / SANKALP SSO — INSTITUTIONAL e-KYC ONBOARDING & SIGNUP
+ * REAL ACCESS / SANKALP SSO — INVITE-BASED ACCOUNT CREATION & BIOMETRIC CONSENT
  * ==============================================================================
  * In plain words (Layman):
- *   When a student is invited to join a university club or research lab, they:
- *     1. Enter their invite token, name, and choose a secure password.
- *     2. Take a live webcam photo to register their facial biometric template.
- *     3. Upload a supporting document (Student ID Card, College Admission Letter).
- *   Their account is placed in 'pending_approval' until an administrator verifies
- *   the ID document against their face photo and confirms their membership.
+ *   When a student is invited to join campus clubs, they activate their account here:
+ *     Step 1: Enter their invite token, name, and choose a secure password.
+ *     Step 2: Review the explicit DPDP Act 2023 Biometric Consent Form.
+ *     Step 3: Once consent is granted, proceed directly to the camera check.
+ *
+ * Technical Specification:
+ *   - Verifies the one-time invite token against the invites table
+ *   - Compliant with India's Digital Personal Data Protection (DPDP) Act, 2023
+ *   - Immutably records consent grant in PostgreSQL audit log
+ *   - Directly transitions to /liveness with preserved user identity
+ *   - Zero third-party icons or emojis
  * ==============================================================================
  */
 
@@ -22,156 +27,115 @@ export default function Signup() {
 
   const tokenParam = searchParams.get("token") || "";
 
+  // Wizard state: 'details' -> 'consent'
+  const [step, setStep] = useState("details");
+
+  // Registration mode: 'direct' (self-service signup) or 'invite' (admin invite token)
+  const [mode, setMode] = useState(tokenParam ? "invite" : "direct");
+
   // Form Fields
+  const [email, setEmail] = useState("");
   const [inviteToken, setInviteToken] = useState(tokenParam);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // e-KYC Media States
-  const [facePhoto, setFacePhoto] = useState(null); // base64 JPEG
-  const [documentFile, setDocumentFile] = useState(null); // File object
-  const [documentBase64, setDocumentBase64] = useState(null);
-  const [documentPreview, setDocumentPreview] = useState(null);
+  // Consent State
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [declineNotice, setDeclineNotice] = useState(false);
 
-  // Camera preview states
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-
-  // Submission & App State
+  // Submission State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [submittedApp, setSubmittedApp] = useState(null); // When submitted successfully
 
-  // Stop camera on unmount
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, []);
-
-  // Start webcam for photo capture
-  const startCamera = async () => {
-    setCameraError(null);
-    setCameraActive(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-    } catch (err) {
-      console.warn("Camera access error:", err);
-      setCameraError("Camera permission denied or camera disconnected.");
-      setCameraActive(false);
-    }
-  };
-
-  // Capture live snapshot from webcam
-  const snapPhoto = () => {
-    if (!videoRef.current) return;
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-      setFacePhoto(dataUrl);
-
-      // Stop camera stream after snap
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      setCameraActive(false);
-    } catch (err) {
-      setError("Failed to capture snapshot from camera.");
-    }
-  };
-
-  const retakePhoto = () => {
-    setFacePhoto(null);
-    startCamera();
-  };
-
-  // Handle Document Upload
-  const handleDocumentChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Document file must be smaller than 10MB.");
-      return;
-    }
-
-    setDocumentFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setDocumentBase64(reader.result);
-      if (file.type.startsWith("image/")) {
-        setDocumentPreview(reader.result);
-      } else {
-        setDocumentPreview(null);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Submit Application
-  const handleSubmit = async (e) => {
+  // Validate credentials and advance to consent screen
+  const handleProceedToConsent = (e) => {
     e.preventDefault();
     setError(null);
 
-    if (!facePhoto) {
-      setError("Please capture your face photo to complete identity registration.");
+    if (mode === "invite") {
+      if (!inviteToken.trim()) {
+        setError("Please provide your invite token.");
+        return;
+      }
+    } else {
+      if (!email.trim() || !email.includes("@")) {
+        setError("Please provide a valid college or personal email address.");
+        return;
+      }
+    }
+
+    if (!name.trim()) {
+      setError("Please enter your full name.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match. Please re-enter.");
       return;
     }
 
+    setStep("consent");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Final submission once consent is accepted
+  const handleConfirmSignup = async () => {
+    if (!consentChecked) {
+      setError("You must review and check the consent box to proceed.");
+      return;
+    }
+
+    setError(null);
     setLoading(true);
 
     try {
       const payload = {
-        invite_token: inviteToken.trim(),
         name: name.trim(),
-        password,
-        face_photo: facePhoto,
-        document_base64: documentBase64,
-        document_name: documentFile ? documentFile.name : null
+        password: password,
+        consent_given: true
       };
 
-      const res = await apiRequest("/auth/apply", {
+      if (mode === "invite") {
+        payload.invite_token = inviteToken.trim();
+      } else {
+        payload.email = email.trim().toLowerCase();
+      }
+
+      const res = await apiRequest("/auth/signup", {
         method: "POST",
         body: JSON.stringify(payload),
       });
 
-      if (res.status === "ok") {
-        setSubmittedApp({
-          name: name.trim(),
-          email: res.email,
-          userId: res.user_id,
-          message: res.message
+      if (res.status === "ok" && res.next === "liveness") {
+        navigate(`/liveness?user_id=${encodeURIComponent(res.user_id)}&email=${encodeURIComponent(res.email)}`, {
+          replace: true
         });
+      } else {
+        navigate("/login", { replace: true });
       }
     } catch (err) {
-      if (err.error === "invite_used") {
+      console.error("Signup error:", err);
+      const detail = err?.detail;
+      const errCode = typeof detail === "object" && detail !== null ? detail.error : err?.error;
+      const errMsg = typeof detail === "object" && detail !== null 
+        ? detail.message 
+        : (typeof detail === "string" ? detail : (err?.message || "Registration failed. Please ensure the backend server is running on port 8001."));
+
+      if (errCode === "invite_used") {
         setError("This invite token has already been used. Please log in.");
-      } else if (err.error === "invite_expired") {
-        setError("This invite token has expired. Please contact your department administrator.");
-      } else if (err.error === "user_exists") {
-        setError("An account with this email already exists. Please log in.");
-      } else if (err.error === "face_not_detected") {
-        setError("Could not detect a clear, centered face in the photo. Please retake under good lighting.");
+      } else if (errCode === "invite_expired") {
+        setError("This invite token has expired. Please contact your organization administrator.");
+      } else if (errCode === "user_exists") {
+        setError("An account with this email already exists. Please log in or use another email.");
+      } else if (errCode === "invalid_invite") {
+        setError("The invite token entered is invalid. Please check your invite email.");
       } else {
-        setError(err.message || "Registration failed. Please check your invite details.");
+        setError(errMsg);
       }
     } finally {
       setLoading(false);
@@ -179,223 +143,272 @@ export default function Signup() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F3EFE7", color: "#12171E", display: "flex", flexDirection: "column" }}>
+    <div style={{
+      minHeight: "100vh",
+      background: "#F3EFE7",
+      color: "#12171E",
+      display: "flex",
+      flexDirection: "column",
+      fontFamily: "'Inter', system-ui, sans-serif"
+    }}>
       
       {/* Top Header Banner */}
-      <header style={{ borderBottom: "1px solid #DDD6C7", padding: "18px 48px", background: "#FBF9F4" }}>
-        <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "24px", height: "24px", borderRadius: "50%", border: "2.5px solid #12171E", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#D9822B" }}></div>
-            </div>
-            <span style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "20px", fontWeight: "600" }}>
-              Sankalp SSO &middot; Institutional e-KYC
+      <header className="auth-header">
+        <div style={{ maxWidth: "1000px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <circle cx="16" cy="16" r="14" stroke="#D9822B" strokeWidth="2"></circle>
+              <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
+              <path d="M2 16h6M24 16h6" stroke="#D9822B" strokeWidth="2" strokeLinecap="round"></path>
+            </svg>
+            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "21px", fontWeight: "600" }}>
+              Real Access
+            </span>
+            <span style={{ fontSize: "11px", background: "#EAE4D6", color: "#4A5260", padding: "2px 8px", borderRadius: "4px", fontWeight: 600 }}>
+              ACTIVATION
             </span>
           </div>
-          <div style={{ fontSize: "14px" }}>
-            <Link to="/login" style={{ color: "#12171E", textDecoration: "underline", textUnderlineOffset: "3px" }}>
-              Back to sign in
+          <div style={{ fontSize: "13px" }}>
+            Already have an active account?&nbsp;
+            <Link to="/login" style={{ color: "#12171E", fontWeight: 600 }}>
+              Sign in &rarr;
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Main Content View */}
-      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px" }}>
-        
-        {/* VIEW A: Confirmation Screen when Application Submitted */}
-        {submittedApp ? (
-          <div style={{
-            background: "#FBF9F4",
-            border: "1px solid #DDD6C7",
-            borderRadius: "16px",
-            padding: "44px",
-            maxWidth: "520px",
-            width: "100%",
-            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.04)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "24px",
-            textAlign: "center"
-          }}>
-            <div style={{
-              width: "60px",
-              height: "60px",
-              borderRadius: "50%",
-              background: "#FDF1DC",
-              border: "2px solid #D9822B",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto"
-            }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8A4A0F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-            </div>
+      {/* Main Container */}
+      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 14px" }}>
+        <div className="auth-card" style={{
+          maxWidth: step === "consent" ? "680px" : "500px",
+        }}>
 
-            <div>
-              <div style={{ display: "inline-block", background: "#F5ECD7", color: "#8A4A0F", padding: "4px 12px", borderRadius: "999px", fontSize: "12px", fontWeight: "700", letterSpacing: "1px", marginBottom: "12px" }}>
-                UNDER ADMINISTRATIVE REVIEW
-              </div>
-              <h1 style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "30px", fontWeight: "500", margin: "0 0 8px", color: "#12171E" }}>
-                Application Submitted!
-              </h1>
-              <p style={{ color: "#5A6270", fontSize: "14.5px", lineHeight: "1.6", margin: 0 }}>
-                Thank you, <strong>{submittedApp.name}</strong>. Your college credentials, live portrait, and supporting document have been recorded.
-              </p>
-            </div>
-
-            <div style={{ background: "#F3EFE7", borderRadius: "10px", padding: "16px", textAlign: "left", fontSize: "13.5px", color: "#4A5260", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#7A8290" }}>Account Email:</span>
-                <span style={{ fontWeight: 600, color: "#12171E" }}>{submittedApp.email}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#7A8290" }}>Current Status:</span>
-                <span style={{ fontWeight: 600, color: "#8A4A0F" }}>Pending Admin Approval</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#7A8290" }}>Next Step:</span>
-                <span>Department admin verifies Student ID</span>
-              </div>
-            </div>
-
-            <p style={{ margin: 0, fontSize: "13px", color: "#7A8290", lineHeight: "1.5" }}>
-              Once your application is confirmed by the system administrator, you can log in directly using your email and pass the camera check.
-            </p>
-
-            <Link
-              to="/login"
-              style={{
-                display: "block",
-                padding: "12px 24px",
-                background: "#12171E",
-                color: "#F5F1E8",
-                textDecoration: "none",
-                borderRadius: "8px",
+          {/* Stepper Indicator */}
+          <ol className="stepper-list">
+            <li className="stepper-item" style={{ color: step === "details" ? "#12171E" : "#1F6B3F" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                background: step === "details" ? "#12171E" : "#1F6B3F",
+                color: "#F3EFE7",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
                 fontWeight: 600,
-                fontSize: "14px"
-              }}
-            >
-              Return to Sign In
-            </Link>
-          </div>
-        ) : (
-
-          /* VIEW B: Multi-Step e-KYC Enrollment Form */
-          <div style={{
-            background: "#FBF9F4",
-            border: "1px solid #DDD6C7",
-            borderRadius: "16px",
-            padding: "40px",
-            maxWidth: "520px",
-            width: "100%",
-            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.04)"
-          }}>
-            
-            <div style={{ marginBottom: "24px" }}>
-              <div style={{ fontSize: "12px", fontWeight: "700", letterSpacing: "1.5px", color: "#8A4A0F", marginBottom: "4px" }}>
-                MEMBER ONBOARDING
-              </div>
-              <h1 style={{ fontFamily: "Newsreader, Georgia, serif", fontSize: "30px", fontWeight: "500", margin: "0 0 8px" }}>
-                Member Registration & e-KYC
-              </h1>
-              <p style={{ color: "#5A6270", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>
-                Complete your details, capture your live portrait, and attach your student proof.
-              </p>
-            </div>
-
-            {error && (
-              <div style={{
-                background: "#F6DDD4",
-                border: "1px solid #9B3A22",
-                borderRadius: "8px",
-                padding: "12px 14px",
-                color: "#9B3A22",
-                fontSize: "13px",
-                marginBottom: "20px"
+                flexShrink: 0
               }}>
-                <div>{error}</div>
-              </div>
-            )}
+                1
+              </span>
+              <span className="stepper-label-full">Account Details</span>
+              <span className="stepper-label-short">Details</span>
+            </li>
+            <li aria-hidden="true" className="stepper-line"></li>
+            <li className="stepper-item" style={{ color: step === "consent" ? "#12171E" : "#7A8290" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                background: step === "consent" ? "#12171E" : "transparent",
+                border: step === "consent" ? "none" : "1px solid #B9B2A3",
+                color: step === "consent" ? "#F3EFE7" : "#7A8290",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 600,
+                flexShrink: 0
+              }}>
+                2
+              </span>
+              <span className="stepper-label-full">Biometric Consent</span>
+              <span className="stepper-label-short">Consent</span>
+            </li>
+            <li aria-hidden="true" className="stepper-line"></li>
+            <li className="stepper-item" style={{ color: "#7A8290" }}>
+              <span style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                border: "1px solid #B9B2A3",
+                color: "#7A8290",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 600,
+                flexShrink: 0
+              }}>
+                3
+              </span>
+              <span className="stepper-label-full">Camera Check</span>
+              <span className="stepper-label-short">Camera</span>
+            </li>
+          </ol>
 
-            <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              
-              {/* SECTION 1: Credentials */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-                    Invite Token
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Paste your 32-character invite token"
-                    required
-                    value={inviteToken}
-                    onChange={(e) => setInviteToken(e.target.value)}
-                    style={{
-                      width: "100%",
-                      height: "44px",
-                      padding: "0 14px",
-                      background: "#FFFFFF",
-                      border: "1px solid #C4BCAF",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      color: "#12171E"
-                    }}
-                  />
+          {/* Error Banner */}
+          {error && (
+            <div style={{
+              background: "#F6DDD4",
+              border: "1px solid #9B3A22",
+              borderRadius: "8px",
+              padding: "12px 16px",
+              color: "#9B3A22",
+              fontSize: "13.5px",
+              marginBottom: "20px"
+            }}>
+              {error}
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* STEP 1: CREDENTIALS & INVITE TOKEN FORM                        */}
+          {/* ============================================================== */}
+          {step === "details" && (
+            <div>
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ fontSize: "11.5px", fontWeight: "700", letterSpacing: "1.8px", color: "#8A4A0F", marginBottom: "4px" }}>
+                  MEMBER ACTIVATION
                 </div>
+                <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "32px", fontWeight: "500", margin: "0 0 6px" }}>
+                  Create Your Account
+                </h1>
+                <p style={{ color: "#5A6270", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>
+                  Register directly with your email address, or enter an invitation token provided by your department administrator.
+                </p>
+              </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-                    Full Name
-                  </label>
+              {/* Mode Toggle: Direct vs Invite Token */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                background: "#EBE5D8",
+                padding: "3px",
+                borderRadius: "8px",
+                marginBottom: "18px"
+              }}>
+                <button
+                  type="button"
+                  onClick={() => { setMode("direct"); setError(null); }}
+                  style={{
+                    background: mode === "direct" ? "#FBF9F4" : "transparent",
+                    color: mode === "direct" ? "#12171E" : "#5A6270",
+                    border: 0,
+                    borderRadius: "6px",
+                    padding: "8px 12px",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: mode === "direct" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  Direct Registration
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("invite"); setError(null); }}
+                  style={{
+                    background: mode === "invite" ? "#FBF9F4" : "transparent",
+                    color: mode === "invite" ? "#12171E" : "#5A6270",
+                    border: 0,
+                    borderRadius: "6px",
+                    padding: "8px 12px",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: mode === "invite" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  Have an Invite Token
+                </button>
+              </div>
+
+              <form onSubmit={handleProceedToConsent} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                
+                {/* Direct Registration Email Input */}
+                {mode === "direct" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label htmlFor="email" style={{ fontSize: "13px", fontWeight: "600" }}>College or Personal Email</label>
+                    <input
+                      id="email"
+                      type="email"
+                      placeholder="e.g. ananya@college.edu"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="input-editorial"
+                      style={{ height: "42px", fontSize: "14px" }}
+                    />
+                  </div>
+                )}
+
+                {/* Invite Token */}
+                {mode === "invite" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label htmlFor="token" style={{ fontSize: "13px", fontWeight: "600" }}>Invite Token</label>
+                      {import.meta.env.DEV && (
+                        <button
+                          type="button"
+                          onClick={() => setInviteToken("demo-invite-token-12345")}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            fontSize: "11.5px",
+                            color: "#8A4A0F",
+                            cursor: "pointer",
+                            textDecoration: "underline"
+                          }}
+                        >
+                          Paste Demo Token
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      id="token"
+                      type="text"
+                      placeholder="e.g. demo-invite-token-12345"
+                      required
+                      value={inviteToken}
+                      onChange={(e) => setInviteToken(e.target.value)}
+                      className="input-editorial"
+                      style={{ height: "42px", fontSize: "14px" }}
+                    />
+                  </div>
+                )}
+
+                {/* Full Name */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="name" style={{ fontSize: "13px", fontWeight: "600" }}>Full Name</label>
                   <input
+                    id="name"
                     type="text"
-                    placeholder="e.g. Rahul Sharma"
+                    placeholder="e.g. Ananya Sen"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    style={{
-                      width: "100%",
-                      height: "44px",
-                      padding: "0 14px",
-                      background: "#FFFFFF",
-                      border: "1px solid #C4BCAF",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      boxSizing: "border-box",
-                      color: "#12171E"
-                    }}
+                    className="input-editorial"
+                    style={{ height: "42px", fontSize: "14px" }}
                   />
                 </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-                    Choose Password (min. 8 characters)
-                  </label>
-                  <div style={{ position: "relative" }}>
+                {/* Password */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="pwd" style={{ fontSize: "13px", fontWeight: "600" }}>Password (min. 8 characters)</label>
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                     <input
+                      id="pwd"
                       type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
+                      placeholder="Choose a strong password"
                       required
                       minLength={8}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      style={{
-                        width: "100%",
-                        height: "44px",
-                        padding: "0 40px 0 14px",
-                        background: "#FFFFFF",
-                        border: "1px solid #C4BCAF",
-                        borderRadius: "8px",
-                        fontSize: "14px",
-                        boxSizing: "border-box",
-                        color: "#12171E"
-                      }}
+                      className="input-editorial"
+                      style={{ height: "42px", fontSize: "14px", paddingRight: "48px" }}
                     />
                     <button
                       type="button"
@@ -403,197 +416,231 @@ export default function Signup() {
                       style={{
                         position: "absolute",
                         right: "10px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
                         background: "none",
                         border: "none",
-                        cursor: "pointer",
+                        padding: "4px 8px",
                         color: "#5A6270",
-                        padding: "4px"
+                        cursor: "pointer",
+                        fontSize: "11.5px",
+                        fontWeight: 600
                       }}
                     >
                       {showPassword ? "Hide" : "Show"}
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* SECTION 2: Live Face Photo Capture */}
-              <div style={{ borderTop: "1px solid #DDD6C7", paddingTop: "16px" }}>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-                  1. Live Face Portrait (Mandatory Biometric Registration)
-                </label>
-                <p style={{ margin: "0 0 12px", fontSize: "12.5px", color: "#5A6270" }}>
-                  Take a clear portrait looking directly at the camera. Used by admin to verify your student ID.
-                </p>
-
-                {facePhoto ? (
-                  /* Captured Photo Preview */
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px", background: "#FFFFFF", border: "1px solid #C4BCAF", borderRadius: "10px", padding: "12px" }}>
-                    <img
-                      src={facePhoto}
-                      alt="Captured Face"
-                      style={{ width: "90px", height: "90px", objectFit: "cover", borderRadius: "8px", border: "1px solid #DDD6C7" }}
-                    />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "#1F6B3F" }}>✓ Portrait Captured</div>
-                      <div style={{ fontSize: "12px", color: "#7A8290", marginTop: "2px" }}>Face features mapped for login verification</div>
-                      <button
-                        type="button"
-                        onClick={retakePhoto}
-                        style={{
-                          marginTop: "8px",
-                          padding: "4px 10px",
-                          background: "#F3EFE7",
-                          border: "1px solid #C4BCAF",
-                          borderRadius: "6px",
-                          fontSize: "12px",
-                          cursor: "pointer",
-                          color: "#12171E"
-                        }}
-                      >
-                        Retake Photo
-                      </button>
-                    </div>
-                  </div>
-                ) : cameraActive ? (
-                  /* Live Camera Viewfinder */
-                  <div style={{ position: "relative", width: "100%", aspectRatio: "4/3", background: "#12171E", borderRadius: "10px", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      autoPlay
-                      style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)" }}
-                    />
-                    <div style={{ position: "absolute", width: "45%", aspectRatio: "3/4", borderRadius: "50%", border: "2px dashed #D9822B", pointerEvents: "none" }}></div>
-                    <button
-                      type="button"
-                      onClick={snapPhoto}
-                      style={{
-                        position: "absolute",
-                        bottom: "16px",
-                        padding: "8px 20px",
-                        background: "#D9822B",
-                        color: "#FFFFFF",
-                        border: "none",
-                        borderRadius: "999px",
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
-                      }}
-                    >
-                      Capture Snapshot
-                    </button>
-                  </div>
-                ) : (
-                  /* Start Camera Button */
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    style={{
-                      width: "100%",
-                      padding: "16px",
-                      background: "#FFFFFF",
-                      border: "2px dashed #C4BCAF",
-                      borderRadius: "10px",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: "8px",
-                      cursor: "pointer"
-                    }}
-                  >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5A6270" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                      <circle cx="12" cy="13" r="4"></circle>
-                    </svg>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>Open Webcam to Take Live Portrait</span>
-                    {cameraError && <span style={{ fontSize: "12px", color: "#9B3A22" }}>{cameraError}</span>}
-                  </button>
-                )}
-              </div>
-
-              {/* SECTION 3: Supporting Document Upload */}
-              <div style={{ borderTop: "1px solid #DDD6C7", paddingTop: "16px" }}>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", marginBottom: "6px" }}>
-                  2. Supporting Document (Student ID / Admission Proof)
-                </label>
-                <p style={{ margin: "0 0 12px", fontSize: "12.5px", color: "#5A6270" }}>
-                  Upload an image (JPG, PNG) or PDF of your university identity card or approval letter.
-                </p>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                {/* Confirm Password */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="confirmpwd" style={{ fontSize: "13px", fontWeight: "600" }}>Confirm Password</label>
                   <input
-                    type="file"
-                    id="doc-upload"
-                    accept="image/jpeg,image/png,application/pdf"
-                    onChange={handleDocumentChange}
-                    style={{ display: "none" }}
+                    id="confirmpwd"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Re-enter your password"
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="input-editorial"
+                    style={{ height: "42px", fontSize: "14px" }}
                   />
-                  <label
-                    htmlFor="doc-upload"
-                    style={{
-                      padding: "10px 18px",
-                      background: "#FFFFFF",
-                      border: "1px solid #C4BCAF",
-                      borderRadius: "8px",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      display: "inline-block"
-                    }}
-                  >
-                    {documentFile ? "Change Document" : "Choose Document File"}
-                  </label>
-                  {documentFile && (
-                    <span style={{ fontSize: "12.5px", color: "#1F6B3F", fontWeight: 500 }}>
-                      ✓ {documentFile.name} ({(documentFile.size / 1024).toFixed(1)} KB)
-                    </span>
-                  )}
                 </div>
 
-                {documentPreview && (
-                  <div style={{ marginTop: "12px" }}>
-                    <img
-                      src={documentPreview}
-                      alt="Document Preview"
-                      style={{ maxHeight: "120px", borderRadius: "6px", border: "1px solid #DDD6C7" }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Submit Button */}
-              <div style={{ borderTop: "1px solid #DDD6C7", paddingTop: "20px" }}>
                 <button
                   type="submit"
-                  disabled={loading}
-                  style={{
-                    width: "100%",
-                    height: "46px",
-                    background: "#12171E",
-                    color: "#F5F1E8",
-                    border: "none",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    cursor: loading ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px"
-                  }}
+                  className="btn-dark"
+                  style={{ height: "46px", width: "100%", marginTop: "8px", fontSize: "14.5px" }}
                 >
-                  {loading ? "Submitting Application..." : "Submit e-KYC Application for Review &rarr;"}
+                  Continue to Biometric Consent &rarr;
                 </button>
+              </form>
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* STEP 2: DIGITAL IDENTITY & BIOMETRIC CONSENT FORM              */}
+          {/* ============================================================== */}
+          {step === "consent" && (
+            <div>
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", letterSpacing: "1.6px", color: "#1F6B3F", background: "#DDEFE2", padding: "3px 8px", borderRadius: "4px" }}>
+                    DPDP ACT 2023 COMPLIANT
+                  </span>
+                  <span style={{ fontSize: "12px", color: "#5A6270" }}>Privacy &amp; Data Charter</span>
+                </div>
+                <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "30px", fontWeight: "500", margin: "0 0 6px" }}>
+                  Digital Identity &amp; Biometric Consent
+                </h1>
+                <p style={{ color: "#5A6270", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>
+                  Before proceeding to the camera verification, please review how your identity verification data is handled, stored, and permanently destroyed.
+                </p>
               </div>
 
-            </form>
-          </div>
-        )}
+              {/* Applicant Summary */}
+              <div className="summary-box">
+                <div className="summary-box-left">
+                  <span style={{ color: "#5A6270" }}>Applicant: </span>
+                  <strong style={{ color: "#12171E" }}>{name}</strong>
+                </div>
+                <div className="summary-box-right">
+                  {mode === "direct" ? (
+                    <span>Email: <strong style={{ color: "#12171E" }}>{email}</strong></span>
+                  ) : (
+                    <span>Token: <code style={{ background: "#E2DDD0", padding: "1px 4px", borderRadius: "3px" }}>{inviteToken}</code></span>
+                  )}
+                </div>
+              </div>
+
+              {/* The 4 Core Consent Cards */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "22px" }}>
+                
+                {/* 1. What we collect */}
+                <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                    1. What data do we collect?
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                    Temporary in-browser video feed to compute 3D head yaw and eyelid blink ratio. <strong>Zero photos, videos, or raw facial templates are ever recorded or stored.</strong> The backend receives only a cryptographic <code style={{ background: "#EAE4D6", padding: "1px 4px", borderRadius: "3px" }}>pass/fail</code> status and verification timestamp.
+                  </div>
+                </div>
+
+                {/* 2. Why we collect it */}
+                <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                    2. Why do we collect it?
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                    To eliminate identity fraud, bot accounts, and still-photo spoofing. This proves that a real, living student is physically present before issuing university Single Sign-On credentials.
+                  </div>
+                </div>
+
+                {/* 3. Where will it be used */}
+                <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                    3. Where will it be used?
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                    Strictly restricted to Single Sign-On (SSO) authentication across authorized university club portals (Robotics Lab, Coding Club, Photography, Athletics, Chess). <strong>Never shared with third parties, never sold, and never used for tracking.</strong>
+                  </div>
+                </div>
+
+                {/* 4. What happens when you leave */}
+                <div style={{ background: "#F3EFE7", border: "1px solid #DDD6C7", borderRadius: "10px", padding: "14px 18px" }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: "600", color: "#12171E", marginBottom: "4px" }}>
+                    4. What happens when you leave? (Right to Erasure)
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#4A5260", lineHeight: "1.5" }}>
+                    Access ends automatically upon graduation, term expiration, or departure. All active sessions and tokens are immediately revoked, and account records are permanently purged following the 30-day cleanup cycle.
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Consent Checkbox */}
+              <div style={{
+                background: consentChecked ? "#EBF5EE" : "#F8F5EE",
+                border: consentChecked ? "1px solid #1F6B3F" : "1px solid #C4BCAF",
+                borderRadius: "10px",
+                padding: "14px 16px",
+                marginBottom: "20px",
+                transition: "all 0.15s ease"
+              }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={consentChecked}
+                    onChange={(e) => {
+                      setConsentChecked(e.target.checked);
+                      if (e.target.checked) setDeclineNotice(false);
+                    }}
+                    style={{ width: "18px", height: "18px", marginTop: "2px", cursor: "pointer", accentColor: "#12171E" }}
+                  />
+                  <span style={{ fontSize: "13px", lineHeight: "1.45", color: "#12171E", fontWeight: 500 }}>
+                    I understand and give my explicit consent for in-browser biometric liveness verification to establish my university digital identity under the Digital Personal Data Protection (DPDP) Act, 2023.
+                  </span>
+                </label>
+              </div>
+
+              {/* Decline Notice */}
+              {declineNotice && (
+                <div style={{
+                  background: "#FBF3D5",
+                  border: "1px solid #D9822B",
+                  borderRadius: "8px",
+                  padding: "12px 14px",
+                  fontSize: "13px",
+                  color: "#8A4A0F",
+                  marginBottom: "16px",
+                  lineHeight: "1.45"
+                }}>
+                  Camera verification is required for automated self-service account activation. If you cannot complete camera verification due to hardware or accessibility constraints, please contact your university department administrator for manual provisioning.
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <button
+                  type="button"
+                  disabled={!consentChecked || loading}
+                  onClick={handleConfirmSignup}
+                  className="btn-dark"
+                  style={{
+                    height: "46px",
+                    width: "100%",
+                    fontSize: "14.5px",
+                    opacity: (!consentChecked || loading) ? 0.5 : 1,
+                    cursor: (!consentChecked || loading) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {loading ? "Registering Consent & Account..." : "I Consent & Proceed to Camera Check \u2192"}
+                </button>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                  <button
+                    type="button"
+                    onClick={() => { setStep("details"); setError(null); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      fontSize: "13px",
+                      color: "#4A5260",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      padding: "4px 0"
+                    }}
+                  >
+                    &larr; Back to edit details
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDeclineNotice(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      fontSize: "13px",
+                      color: "#8A4A0F",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      padding: "4px 0"
+                    }}
+                  >
+                    Decline / Alternatives
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+        </div>
       </main>
+
+      {/* Footer */}
+      <footer style={{ borderTop: "1px solid #DDD6C7", padding: "16px 40px", background: "#FBF9F4", fontSize: "12px", color: "#5A6270", textAlign: "center" }}>
+        Sankalp SSO &bull; Compliant with Digital Personal Data Protection Act, 2023 &bull; Privacy by Design
+      </footer>
+
     </div>
   );
 }

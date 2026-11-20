@@ -6,6 +6,7 @@ from app.models import AuditLog
 VALID_AUDIT_ACTIONS = {
     "invite_created",
     "signup",
+    "signup_consent_granted",
     "login_ok",
     "login_fail",
     "liveness_pass",
