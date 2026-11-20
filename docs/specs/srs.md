@@ -129,22 +129,28 @@ stateDiagram-v2
 
 ---
 
-### FR2: Instant Cross-System Revocation ("Mark as Left")
-- When an administrator disables a user or clicks **"Mark as left"**, the backend must perform an atomic database update:
+### FR2: Instant Cross-System Revocation ("Mark as Left") & 48-Hour Recovery Notice
+- When an administrator disables a user or clicks **"Mark as left"**, the backend performs an atomic database update:
   1. Set `user.status = 'disabled'` and `user.disabled_reason = 'left'`.
   2. Set `sso_sessions.revoked_at = NOW()` for all active sessions belonging to that user.
   3. Set `refresh_tokens.revoked_at = NOW()` for all refresh tokens across all connected products.
-- Any subsequent attempt by connected products to refresh an access token or validate user status must fail immediately with HTTP 403 `account_disabled`.
+  4. Automatically dispatch an email notice to the departing member:
+     - Notice that access has been revoked.
+     - 48-hour recovery window instructions (with hyperlinked CTA button redirecting to `/renew?email=...`).
+     - Clear warning that after 48 hours, all credential data will be completely purged from the entire database.
+     - Prominent red note: *"If this decision was intentional or you have already applied for renewal, please ignore this email."*
+- Any subsequent attempt by connected products to refresh an access token or validate user status fails immediately with HTTP 403 `account_disabled`.
 - **Latency target**: Under 0.2 seconds from admin button click to denied access across all 5 clubs.
 
 ---
 
-### FR3: Account Deletion Safeguard
-- To protect against accidental or malicious immediate data loss, the system strictly forbids deleting an account directly.
-- An account can only be permanently marked `deleted` if:
-  1. The account is currently in `disabled` status.
-  2. At least **30 calendar days** have elapsed since `disabled_at`.
-  3. An administrator explicitly confirms the deletion via `POST /admin/users/{id}/delete-approve`.
+### FR3: 48-Hour Permanent Database Purge & Renewal Workflow
+- To protect against accidental admin revocations or unexpected term expiries, the system implements a **48-Hour Recovery Window**:
+  1. Members whose status is set to `disabled` (via "Mark as Left", term expiration, or 60-day inactivity) have **48 hours** to submit a renewal application (`POST /auth/renew`).
+  2. The Admin Dashboard features a dedicated **Renewals Desk** displaying pending recovery appeals with a real-time countdown timer.
+  3. If an administrator approves the renewal (`POST /admin/renewals/{id}/approve`), the account is instantly restored to `active` status, canceling the purge countdown, and an approval email is dispatched.
+  4. If an administrator declines the renewal (`POST /admin/renewals/{id}/decline`), a decline email is sent to the user.
+  5. If **48 hours elapse** without an approved renewal, the background cleanup janitor automatically and permanently **purges all user credential records and stored biometric/document files from the entire database** (`user_purged_permanently`). Re-entering the organization requires registering again from scratch.
 
 ---
 

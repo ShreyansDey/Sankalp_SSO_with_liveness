@@ -17,6 +17,7 @@ erDiagram
     USERS ||--o{ LIVENESS_CHALLENGES : "answers"
     USERS ||--o{ PASSWORD_RESET_TOKENS : "requests"
     USERS ||--o{ INVITES : "created by admin"
+    USERS ||--o{ RENEWAL_REQUESTS : "submits"
     PRODUCTS ||--o{ AUTH_CODES : "received for"
     PRODUCTS ||--o{ REFRESH_TOKENS : "holds for"
     USERS ||--o{ AUDIT_LOG : "actor or target"
@@ -290,9 +291,9 @@ stateDiagram-v2
 
 ---
 
-## 4. The 20 Fixed Audit Actions Catalog
+## 4. The 24 Fixed Audit Actions Catalog
 
-To prevent tampering or inconsistent log entries, the backend strictly validates incoming audit events against a **fixed set of 20 action identifiers**:
+To prevent tampering or inconsistent log entries, the backend strictly validates incoming audit events against a **fixed set of 24 action identifiers**:
 
 | # | Action Identifier | Triggering Event | Actor (`actor_id`) | Target (`target_id`) | Sample Detail Payload |
 |---|---|---|---|---|---|
@@ -316,3 +317,7 @@ To prevent tampering or inconsistent log entries, the backend strictly validates
 | 18 | `delete_requested` | Admin marks disabled account for deletion | Admin User ID | User ID | `{"days_disabled": 32}` |
 | 19 | `delete_approved` | Admin confirms permanent account deletion | Admin User ID | User ID | `{"permanent": true}` |
 | 20 | `product_registered` | Admin registers a new campus club app | Admin User ID | Product ID | `{"client_id": "app-f", "name": "Music Club"}` |
+| 21 | `renewal_requested` | User applies for recovery in 48-hour window | User ID | Request ID | `{"email": "rahul@ju.edu", "reason": "Accidental mark-left"}` |
+| 22 | `renewal_approved` | Admin approves 48-hour recovery request | Admin User ID | User ID | `{"email": "rahul@ju.edu", "request_id": "req-123"}` |
+| 23 | `renewal_declined` | Admin declines 48-hour recovery request | Admin User ID | User ID | `{"email": "rahul@ju.edu", "request_id": "req-123"}` |
+| 24 | `user_purged_permanently` | 48-hour cleanup daemon purges records & files | `"system_cleanup_job"` | User ID | `{"email": "rahul@ju.edu", "held_hours": 48}` |

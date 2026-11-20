@@ -23,7 +23,11 @@ VALID_AUDIT_ACTIONS = {
     "application_rejected",
     "face_match_fail",
     "password_reset_requested",
-    "password_reset_completed"
+    "password_reset_completed",
+    "renewal_requested",
+    "renewal_approved",
+    "renewal_declined",
+    "user_purged_permanently"
 }
 
 def log_audit(
