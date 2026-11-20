@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
+import AdminMembersTab from "../components/admin/AdminMembersTab";
+import AdminApplicationsTab from "../components/admin/AdminApplicationsTab";
+import AdminRenewalsTab from "../components/admin/AdminRenewalsTab";
+import AdminInvitesTab from "../components/admin/AdminInvitesTab";
+import AdminCleanupTab from "../components/admin/AdminCleanupTab";
+import AdminAuditTab from "../components/admin/AdminAuditTab";
 
 /**
  * ==============================================================================
@@ -10,19 +16,15 @@ import { apiRequest, API_BASE } from "../api";
  *   This is the security command center for university department administrators.
  *   Admins can view all club members, see their expiration dates, click "Mark as left"
  *   to instantly cut off access everywhere, trigger automatic cleanup on demand,
+ *   review pending e-KYC photo applications, handle 48h recovery renewals,
  *   and inspect the live audit log.
- *
- * Technical Role:
- *   - Matches the '4. Admin: Members' design component (Admin.dc.html)
- *   - Calls /admin/users, /admin/invites, /admin/products, /admin/audit, /admin/cleanup/run
- *   - Enforces role == "admin" (non-admins redirected to /login)
  * ==============================================================================
  */
 
 export default function Admin() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("members"); // members, applications, invites, products, cleanup, audit
+  const [activeTab, setActiveTab] = useState("members"); // members, applications, invites, renewals, audit, cleanup
 
   // Data states
   const [users, setUsers] = useState([]);
@@ -47,14 +49,13 @@ export default function Admin() {
   const [inviteTermEnd, setInviteTermEnd] = useState("");
   const [generatedInvite, setGeneratedInvite] = useState(null);
 
-  // Cleanup result
+  // Cleanup state
   const [cleanupResult, setCleanupResult] = useState(null);
   const [cleaning, setCleaning] = useState(false);
 
   useEffect(() => {
     loadInitialData();
 
-    // Defeat Back-Forward Cache (bfcache): re-verify session if browser navigates back
     const handlePageShow = (event) => {
       if (event.persisted) {
         loadInitialData();
@@ -78,90 +79,10 @@ export default function Admin() {
       await fetchInvites();
       await fetchRenewals();
       await fetchAudit();
-    } catch (err) {
+    } catch {
       navigate("/login", { replace: true });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchRenewals = async () => {
-    try {
-      const data = await apiRequest("/admin/renewals");
-      setRenewals(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Could not load renewals:", err);
-    }
-  };
-
-  const handleApproveRenewal = async (reqId, memberName) => {
-    setActionLoadingId(reqId);
-    try {
-      const res = await apiRequest(`/admin/renewals/${reqId}/approve`, { method: "POST" });
-      setStatusMessage(res.message || `Approved renewal for ${memberName}! Access restored.`);
-      await fetchRenewals();
-      await fetchUsers();
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to approve renewal request");
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  const handleDeclineRenewal = async (reqId, memberName) => {
-    if (!window.confirm(`Are you sure you want to decline the renewal request for ${memberName}?`)) return;
-    setActionLoadingId(reqId);
-    try {
-      const res = await apiRequest(`/admin/renewals/${reqId}/decline`, { method: "POST" });
-      setStatusMessage(`Renewal request for ${memberName} declined.`);
-      await fetchRenewals();
-      await fetchUsers();
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to decline renewal request");
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  const fetchApplications = async () => {
-    try {
-      const data = await apiRequest("/admin/applications");
-      setApplications(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn("Could not load applications:", err);
-    }
-  };
-
-  const handleApproveApp = async (appId, appName) => {
-    setActionLoadingId(appId);
-    try {
-      const res = await apiRequest(`/admin/applications/${appId}/approve`, { method: "POST" });
-      setStatusMessage(res.message || `Approved ${appName}! Member is now active.`);
-      await fetchApplications();
-      await fetchUsers();
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to approve application");
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  const handleRejectApp = async (appId, appName) => {
-    if (!window.confirm(`Are you sure you want to reject the application for ${appName}?`)) return;
-    setActionLoadingId(appId);
-    try {
-      await apiRequest(`/admin/applications/${appId}/reject`, { method: "POST" });
-      setStatusMessage(`Application for ${appName} rejected.`);
-      await fetchApplications();
-      await fetchUsers();
-      await fetchAudit();
-    } catch (err) {
-      setErrorMessage(err.message || "Failed to reject application");
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
@@ -170,7 +91,16 @@ export default function Admin() {
       const data = await apiRequest("/admin/users");
       setUsers(data);
     } catch (err) {
-      setErrorMessage("Failed to load users from database");
+      setErrorMessage(err.message || "Failed to load members list");
+    }
+  };
+
+  const fetchApplications = async () => {
+    try {
+      const data = await apiRequest("/admin/applications");
+      setApplications(Array.isArray(data) ? data : []);
+    } catch {
+      setApplications([]);
     }
   };
 
@@ -179,53 +109,18 @@ export default function Admin() {
       const data = await apiRequest("/admin/invites");
       if (Array.isArray(data) && data.length > 0) {
         setInvites(data);
-      } else {
-        setInvites([
-          {
-            id: "inv-001",
-            email: "ananya.sen@jadavpur.edu",
-            role: "member",
-            term_end: "2027-06-30T00:00:00",
-            expires_at: "2026-12-05T00:00:00",
-            status: "pending"
-          },
-          {
-            id: "inv-002",
-            email: "debjit.das@jadavpur.edu",
-            role: "member",
-            term_end: "2027-03-31T00:00:00",
-            expires_at: "2026-11-25T00:00:00",
-            status: "accepted"
-          },
-          {
-            id: "inv-003",
-            email: "souvik.pal@jadavpur.edu",
-            role: "member",
-            term_end: "2026-12-31T00:00:00",
-            expires_at: "2026-11-10T00:00:00",
-            status: "expired"
-          }
-        ]);
       }
-    } catch (err) {
-      setInvites([
-        {
-          id: "inv-001",
-          email: "ananya.sen@jadavpur.edu",
-          role: "member",
-          term_end: "2027-06-30T00:00:00",
-          expires_at: "2026-12-05T00:00:00",
-          status: "pending"
-        },
-        {
-          id: "inv-002",
-          email: "debjit.das@jadavpur.edu",
-          role: "member",
-          term_end: "2027-03-31T00:00:00",
-          expires_at: "2026-11-25T00:00:00",
-          status: "accepted"
-        }
-      ]);
+    } catch {
+      // Fallback
+    }
+  };
+
+  const fetchRenewals = async () => {
+    try {
+      const data = await apiRequest("/admin/renewals");
+      setRenewals(Array.isArray(data) ? data : []);
+    } catch {
+      setRenewals([]);
     }
   };
 
@@ -233,7 +128,7 @@ export default function Admin() {
     try {
       const data = await apiRequest("/admin/audit?limit=100");
       setAuditLogs(data);
-    } catch (err) {
+    } catch {
       setErrorMessage("Failed to load audit logs");
     }
   };
@@ -262,6 +157,75 @@ export default function Admin() {
       await fetchAudit();
     } catch (err) {
       setErrorMessage(err.message || "Failed to enable user");
+    }
+  };
+
+  const handleApproveApp = async (appId, applicantName) => {
+    setActionLoadingId(appId);
+    try {
+      setStatusMessage(null);
+      setErrorMessage(null);
+      const res = await apiRequest(`/admin/applications/${appId}/approve`, { method: "POST" });
+      setStatusMessage(res.message || `Application for ${applicantName} approved! Account is now active.`);
+      await fetchApplications();
+      await fetchUsers();
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to approve application");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleRejectApp = async (appId, applicantName) => {
+    const reason = window.prompt(`Reject application for ${applicantName}? Enter rejection reason for audit trail:`, "Identity could not be verified");
+    if (reason === null) return;
+    setActionLoadingId(appId);
+    try {
+      setStatusMessage(null);
+      setErrorMessage(null);
+      const res = await apiRequest(`/admin/applications/${appId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason })
+      });
+      setStatusMessage(res.message || `Application for ${applicantName} rejected.`);
+      await fetchApplications();
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to reject application");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleApproveRenewal = async (reqId, memberName) => {
+    setActionLoadingId(reqId);
+    try {
+      const res = await apiRequest(`/admin/renewals/${reqId}/approve`, { method: "POST" });
+      setStatusMessage(res.message || `Approved renewal for ${memberName}! Access restored.`);
+      await fetchRenewals();
+      await fetchUsers();
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to approve renewal request");
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDeclineRenewal = async (reqId, memberName) => {
+    if (!window.confirm(`Are you sure you want to decline the renewal request for ${memberName}?`)) return;
+    setActionLoadingId(reqId);
+    try {
+      await apiRequest(`/admin/renewals/${reqId}/decline`, { method: "POST" });
+      setStatusMessage(`Renewal request for ${memberName} declined.`);
+      await fetchRenewals();
+      await fetchUsers();
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to decline renewal request");
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -310,7 +274,7 @@ export default function Admin() {
     const adminName = currentUser?.name || "Administrator";
     try {
       await apiRequest("/auth/logout", { method: "POST" });
-    } catch (e) {
+    } catch {
       // Ignore
     }
     navigate("/signed-out", {
@@ -345,11 +309,10 @@ export default function Admin() {
     const matchesSearch =
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.email.toLowerCase().includes(searchQuery.toLowerCase());
-
     if (!matchesSearch) return false;
-
+    if (statusFilter === "all") return true;
     if (statusFilter === "active") return u.status === "active";
-    if (statusFilter === "disabled") return u.status === "disabled";
+    if (statusFilter === "disabled") return u.status === "disabled" || u.status === "deleted";
     if (statusFilter === "ending_soon") {
       if (u.status !== "active" || !u.term_end) return false;
       const diffDays = Math.ceil((new Date(u.term_end) - new Date()) / (1000 * 60 * 60 * 24));
@@ -360,91 +323,115 @@ export default function Admin() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F3EFE7" }}>
-        <p style={{ color: "#5A6270", fontSize: "15px" }}>Loading administration console...</p>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F5F1E8", color: "#12171E", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "20px", fontWeight: 600, marginBottom: "8px" }}>Loading Security Command Desk...</div>
+          <div style={{ fontSize: "14px", color: "#5A6270" }}>Validating administrator session & permissions</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      fontFamily: "'Inter', system-ui, sans-serif",
-      color: "#12171E",
-      background: "#F3EFE7",
-      display: "flex",
-      flexDirection: "column"
-    }}>
-
+    <div style={{ minHeight: "100vh", background: "#F5F1E8", color: "#12171E", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
       {/* TOP HEADER */}
-      <header style={{ background: "#12171E", color: "#F5F1E8" }}>
-        <div style={{
-          boxSizing: "border-box",
-          padding: "14px 32px",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "16px"
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-              <circle cx="16" cy="16" r="14" stroke="#D9822B" strokeWidth="2"></circle>
-              <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
-              <path d="M2 16h6M24 16h6" stroke="#D9822B" strokeWidth="2" strokeLinecap="round"></path>
-            </svg>
-            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "21px", fontWeight: 600 }}>
-              Real Access
-            </span>
+      <header style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "16px 28px",
+        background: "#F5F1E8",
+        borderBottom: "1px solid #DDD6C7"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <Link to="/clubs" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", color: "inherit" }}>
             <span style={{
-              fontSize: "12px",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "36px",
+              height: "36px",
+              background: "#12171E",
+              color: "#F5F1E8",
+              fontFamily: "'Newsreader', Georgia, serif",
+              fontSize: "19px",
               fontWeight: 600,
-              letterSpacing: "1.6px",
-              color: "#12171E",
-              background: "#D9822B",
-              borderRadius: "4px",
-              padding: "3px 8px"
+              borderRadius: "8px"
             }}>
-              ADMIN
+              S
             </span>
+            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "22px", fontWeight: 600 }}>
+              Sankalp SSO
+            </span>
+          </Link>
+          <span style={{ fontSize: "13px", color: "#5A6270" }}>&bull;</span>
+          <span style={{ fontSize: "14px", fontWeight: 500, color: "#12171E" }}>Admin Command Desk</span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <Link
+            to="/clubs"
+            style={{
+              fontSize: "14px",
+              fontWeight: 500,
+              color: "#12171E",
+              textDecoration: "none",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              background: "#EAE4D6"
+            }}
+          >
+            ← View Campus Clubs
+          </Link>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              background: "#12171E",
+              color: "#F5F1E8",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "12px",
+              fontWeight: 600
+            }}>
+              {getInitials(currentUser?.name)}
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: 500, color: "#12171E" }}>
+              {currentUser?.name || "Administrator"}
+            </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "20px", fontSize: "14px" }}>
-            <Link to="/clubs" style={{ color: "#D8D2C4", textDecoration: "none", fontSize: "13px" }}>
-              Member Clubs View
-            </Link>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontWeight: 600 }}>{currentUser?.name || "Admin"}</span>
-            </div>
-            <button
-              onClick={handleSignOut}
-              style={{
-                color: "#F5F1E8",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "14px",
-                textDecoration: "underline",
-                textUnderlineOffset: "3px"
-              }}
-            >
-              Sign out
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            style={{
+              padding: "6px 12px",
+              fontSize: "13px",
+              fontWeight: 500,
+              color: "#9B3A22",
+              background: "transparent",
+              border: "1px solid #9B3A22",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
-      {/* BODY WITH SIDE NAV */}
-      <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "stretch" }}>
-
-        {/* SIDEBAR NAVIGATION */}
+      {/* BODY WITH SIDEBAR NAVIGATION */}
+      <div style={{ display: "flex", minHeight: "calc(100vh - 69px)" }}>
+        {/* SIDEBAR TABS */}
         <nav
-          className="admin-sidebar-nav"
           style={{
-            flex: "0 0 232px",
-            boxSizing: "border-box",
-            padding: "28px 16px",
+            width: "240px",
+            flexShrink: 0,
             borderRight: "1px solid #DDD6C7",
+            padding: "24px 16px",
             display: "flex",
             flexDirection: "column",
             gap: "4px",
@@ -594,7 +581,6 @@ export default function Admin() {
           flexDirection: "column",
           gap: "28px"
         }}>
-
           {/* Status Alerts */}
           {statusMessage && (
             <div style={{
@@ -622,888 +608,68 @@ export default function Admin() {
             </div>
           )}
 
+          {/* TAB: MEMBERS */}
+          {activeTab === "members" && (
+            <AdminMembersTab
+              users={users}
+              filteredUsers={filteredUsers}
+              activeCount={activeCount}
+              endingSoonCount={endingSoonCount}
+              disabledCount={disabledCount}
+              waitingDeleteCount={waitingDeleteCount}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              cleaning={cleaning}
+              onRunCleanup={handleRunCleanup}
+              onShowInviteModal={() => setShowInviteModal(true)}
+              onMarkLeft={handleMarkLeft}
+              onEnable={handleEnable}
+            />
+          )}
+
           {/* TAB: PENDING e-KYC APPLICATIONS */}
           {activeTab === "applications" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: "16px" }}>
-                <div>
-                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px", lineHeight: 1.1 }}>
-                    Pending Approvals
-                  </h1>
-                  <div style={{ fontSize: "14px", color: "#5A6270" }}>
-                    Manual identity verification desk. Review live webcam capture against uploaded institutional ID before granting access.
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{
-                    padding: "4px 12px",
-                    borderRadius: "999px",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    background: applications.length > 0 ? "#8A4A0F" : "#1F6B3F",
-                    color: "#FFFFFF"
-                  }}>
-                    {applications.length} Pending Review
-                  </span>
-                </div>
-              </div>
-
-              {applications.length === 0 ? (
-                <div style={{
-                  background: "#FBF9F4",
-                  border: "1px dashed #DDD6C7",
-                  borderRadius: "14px",
-                  padding: "48px 24px",
-                  textAlign: "center"
-                }}>
-                  <div style={{ fontSize: "18px", fontWeight: 600, color: "#12171E", marginBottom: "6px" }}>
-                    No Pending Membership Applications
-                  </div>
-                  <div style={{ fontSize: "14px", color: "#5A6270" }}>
-                    All student e-KYC applications have been verified. New invite submissions will appear here.
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-                  {applications.map((app) => (
-                    <div
-                      key={app.id}
-                      style={{
-                        background: "#FBF9F4",
-                        border: "1px solid #DDD6C7",
-                        borderRadius: "14px",
-                        padding: "24px",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "20px"
-                      }}
-                    >
-                      {/* Card Header */}
-                      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", borderBottom: "1px solid #EAE5D9", paddingBottom: "16px" }}>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <h3 style={{ margin: 0, fontFamily: "'Newsreader', Georgia, serif", fontSize: "24px", fontWeight: 600 }}>
-                              {app.name}
-                            </h3>
-                            <span style={{
-                              padding: "2px 8px",
-                              borderRadius: "6px",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                              background: "#E4DDCF",
-                              color: "#12171E"
-                            }}>
-                              {app.role || "member"}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "4px" }}>
-                            {app.email} {app.phone ? `· ${app.phone}` : ""}
-                          </div>
-                        </div>
-
-                        <div style={{ fontSize: "13px", color: "#5A6270", textAlign: "right" }}>
-                          <div>Submitted: {app.created_at ? new Date(app.created_at).toLocaleString() : "Recently"}</div>
-                          {app.term_end && <div>Term End: {app.term_end}</div>}
-                        </div>
-                      </div>
-
-                      {/* Side-by-Side Biometric & Document Verification */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: "20px" }}>
-                        {/* Live Webcam Portrait */}
-                        <div style={{
-                          background: "#F3EFE7",
-                          border: "1px solid #DDD6C7",
-                          borderRadius: "10px",
-                          padding: "16px",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "10px"
-                        }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>
-                              Live Webcam Portrait
-                            </span>
-                            <span style={{ fontSize: "11px", fontWeight: 600, color: "#1F6B3F" }}>
-                              ✓ 128D Embedding Extracted
-                            </span>
-                          </div>
-
-                          <div style={{
-                            width: "100%",
-                            height: "220px",
-                            background: "#12171E",
-                            borderRadius: "8px",
-                            overflow: "hidden",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            position: "relative"
-                          }}>
-                            {app.face_data_url ? (
-                              <img
-                                src={app.face_data_url}
-                                alt={`Face snapshot of ${app.name}`}
-                                style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
-                                onClick={() => setPreviewImage({ title: `${app.name} — Live Portrait Capture`, src: app.face_data_url, isPdf: false })}
-                              />
-                            ) : (
-                              <div style={{ color: "#F5F1E8", fontSize: "13px" }}>No face photo available</div>
-                            )}
-                          </div>
-                          <div style={{ fontSize: "12px", color: "#5A6270", textAlign: "center" }}>
-                            Captured during onboarding · Click to zoom
-                          </div>
-                        </div>
-
-                        {/* Supporting Document */}
-                        <div style={{
-                          background: "#F3EFE7",
-                          border: "1px solid #DDD6C7",
-                          borderRadius: "10px",
-                          padding: "16px",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "10px"
-                        }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>
-                              Supporting Document (ID Proof)
-                            </span>
-                            <span style={{ fontSize: "11px", color: "#5A6270" }}>
-                              {app.document_name || "Document"}
-                            </span>
-                          </div>
-
-                          <div style={{
-                            width: "100%",
-                            height: "220px",
-                            background: "#EAE5D9",
-                            borderRadius: "8px",
-                            overflow: "hidden",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            position: "relative"
-                          }}>
-                            {app.document_data_url ? (
-                              app.document_data_url.startsWith("data:application/pdf") ? (
-                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "16px", textAlign: "center" }}>
-                                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8A4A0F" strokeWidth="1.5">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                                    <polyline points="10 9 9 9 8 9"></polyline>
-                                  </svg>
-                                  <span style={{ fontSize: "13px", fontWeight: 500 }}>PDF Document Uploaded</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewImage({ title: `${app.name} — Supporting Document (${app.document_name})`, src: app.document_data_url, isPdf: true })}
-                                    style={{
-                                      padding: "6px 14px",
-                                      background: "#12171E",
-                                      color: "#FFFFFF",
-                                      border: "none",
-                                      borderRadius: "6px",
-                                      fontSize: "12px",
-                                      cursor: "pointer"
-                                    }}
-                                  >
-                                    View PDF Proof
-                                  </button>
-                                </div>
-                              ) : (
-                                <img
-                                  src={app.document_data_url}
-                                  alt={`Document submitted by ${app.name}`}
-                                  style={{ width: "100%", height: "100%", objectFit: "contain", cursor: "pointer", background: "#FFFFFF" }}
-                                  onClick={() => setPreviewImage({ title: `${app.name} — Supporting Document (${app.document_name})`, src: app.document_data_url, isPdf: false })}
-                                />
-                              )
-                            ) : (
-                              <div style={{ color: "#5A6270", fontSize: "13px" }}>No document attached</div>
-                            )}
-                          </div>
-                          <div style={{ fontSize: "12px", color: "#5A6270", textAlign: "center" }}>
-                            Student ID Card / Admission Slip · Click to preview
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Approval Actions */}
-                      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "12px", paddingTop: "12px", borderTop: "1px solid #EAE5D9" }}>
-                        <div style={{ fontSize: "13px", color: "#5A6270" }}>
-                          Upon approval, the 128D face vector is registered for daily login face matching.
-                        </div>
-
-                        <div style={{ display: "flex", gap: "12px" }}>
-                          <button
-                            type="button"
-                            disabled={actionLoadingId === app.id}
-                            onClick={() => handleRejectApp(app.id, app.name)}
-                            style={{
-                              height: "40px",
-                              padding: "0 18px",
-                              fontSize: "14px",
-                              fontWeight: 600,
-                              color: "#9B3A22",
-                              background: "transparent",
-                              border: "1px solid #9B3A22",
-                              borderRadius: "8px",
-                              cursor: "pointer"
-                            }}
-                          >
-                            {actionLoadingId === app.id ? "Processing..." : "Reject Application"}
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={actionLoadingId === app.id}
-                            onClick={() => handleApproveApp(app.id, app.name)}
-                            style={{
-                              height: "40px",
-                              padding: "0 22px",
-                              fontSize: "14px",
-                              fontWeight: 600,
-                              color: "#FFFFFF",
-                              background: "#1F6B3F",
-                              border: "none",
-                              borderRadius: "8px",
-                              cursor: "pointer"
-                            }}
-                          >
-                            {actionLoadingId === app.id ? "Approving..." : "Approve & Activate"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 1: MEMBERS */}
-          {activeTab === "members" && (
-            <>
-              {/* Header and Action Buttons */}
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: "16px" }}>
-                <div>
-                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px", lineHeight: 1.1 }}>
-                    Members
-                  </h1>
-                  <div style={{ fontSize: "14px", color: "#5A6270" }}>
-                    Connected to PostgreSQL. Revocation blocks all 5 campus clubs in under 0.2s.
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-                  <button
-                    type="button"
-                    disabled={cleaning}
-                    onClick={handleRunCleanup}
-                    style={{
-                      height: "44px",
-                      padding: "0 20px",
-                      fontSize: "15px",
-                      fontWeight: 600,
-                      color: "#12171E",
-                      background: "transparent",
-                      border: "1px solid #12171E",
-                      borderRadius: "8px",
-                      cursor: "pointer"
-                    }}
-                  >
-                    {cleaning ? "Running..." : "Run cleanup now"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowInviteModal(true)}
-                    style={{
-                      height: "44px",
-                      padding: "0 20px",
-                      fontSize: "15px",
-                      fontWeight: 600,
-                      color: "#F5F1E8",
-                      background: "#12171E",
-                      border: 0,
-                      borderRadius: "8px",
-                      cursor: "pointer"
-                    }}
-                  >
-                    + Invite member
-                  </button>
-                </div>
-              </div>
-
-              {/* Summary KPIs */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px" }}>
-                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
-                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1 }}>{activeCount}</div>
-                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Active members</div>
-                </div>
-                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
-                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1, color: "#8A4A0F" }}>{endingSoonCount}</div>
-                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Ending in 30 days</div>
-                </div>
-                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
-                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1, color: "#9B3A22" }}>{disabledCount}</div>
-                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Disabled accounts</div>
-                </div>
-                <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
-                  <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1 }}>{waitingDeleteCount}</div>
-                  <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Waiting 30-day delete</div>
-                </div>
-              </div>
-
-              {/* Members Table Card */}
-              <section style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
-                {/* Search & Filter Bar */}
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "16px 20px", borderBottom: "1px solid #E6E0D2" }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "14px", fontWeight: 500 }}>
-                    {["all", "active", "ending_soon", "disabled"].map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setStatusFilter(f)}
-                        style={{
-                          padding: "6px 14px",
-                          borderRadius: "999px",
-                          border: "none",
-                          cursor: "pointer",
-                          background: statusFilter === f ? "#12171E" : "transparent",
-                          color: statusFilter === f ? "#F5F1E8" : "#4A5260",
-                          textTransform: "capitalize"
-                        }}
-                      >
-                        {f.replace("_", " ")}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div>
-                    <input
-                      type="search"
-                      placeholder="Search by name or email"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      style={{
-                        width: "260px",
-                        maxWidth: "100%",
-                        height: "38px",
-                        boxSizing: "border-box",
-                        padding: "0 14px",
-                        fontSize: "14px",
-                        color: "#12171E",
-                        background: "#F3EFE7",
-                        border: "1px solid #B9B2A3",
-                        borderRadius: "8px"
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Table */}
-                <div style={{ overflowX: "auto" }}>
-                  <div style={{ minWidth: "860px" }}>
-                    <div style={{
-                      display: "grid",
-                      gridTemplateColumns: "2.4fr 1fr 1.8fr 1.2fr 1.2fr 1.2fr",
-                      gap: "16px",
-                      padding: "12px 20px",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      letterSpacing: "1.2px",
-                      color: "#5A6270",
-                      background: "#F3EFE7"
-                    }}>
-                      <div>MEMBER</div>
-                      <div>ROLE</div>
-                      <div>STATUS</div>
-                      <div>TERM ENDS</div>
-                      <div>LAST ACTIVE</div>
-                      <div style={{ textAlign: "right" }}>ACTIONS</div>
-                    </div>
-
-                    {filteredUsers.length === 0 ? (
-                      <div style={{ padding: "30px", textAlign: "center", color: "#5A6270" }}>
-                        No members found matching your search.
-                      </div>
-                    ) : (
-                      filteredUsers.map((u) => {
-                        const isDisabled = u.status === "disabled" || u.status === "deleted";
-                        return (
-                          <div
-                            key={u.id}
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "2.4fr 1fr 1.8fr 1.2fr 1.2fr 1.2fr",
-                              gap: "16px",
-                              alignItems: "center",
-                              padding: "14px 20px",
-                              borderTop: "1px solid #E6E0D2",
-                              fontSize: "14px",
-                              background: isDisabled ? "#F7F4EC" : "transparent"
-                            }}
-                          >
-                            {/* Member Name */}
-                            <div>
-                              <div style={{ fontWeight: 500, color: isDisabled ? "#4A5260" : "#12171E" }}>{u.name}</div>
-                              <div style={{ fontSize: "13px", color: "#5A6270" }}>{u.email}</div>
-                            </div>
-
-                            {/* Role */}
-                            <div style={{ textTransform: "capitalize", color: isDisabled ? "#4A5260" : "#12171E" }}>
-                              {u.role}
-                            </div>
-
-                            {/* Status Pill */}
-                            <div>
-                              {u.status === "active" ? (
-                                <span style={{ fontSize: "13px", fontWeight: 500, color: "#1F6B3F", background: "#DDEFE2", borderRadius: "999px", padding: "4px 12px" }}>
-                                  Active
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: "13px", fontWeight: 500, color: "#9B3A22", background: "#F6DDD4", borderRadius: "999px", padding: "4px 12px" }}>
-                                  Disabled {u.disabled_reason ? `· ${u.disabled_reason}` : ""}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Term End */}
-                            <div style={{ fontSize: "13px", color: isDisabled ? "#4A5260" : "#12171E" }}>
-                              {u.term_end ? new Date(u.term_end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Indefinite"}
-                            </div>
-
-                            {/* Last Active */}
-                            <div style={{ fontSize: "13px", color: "#5A6270" }}>
-                              {u.last_active_at ? new Date(u.last_active_at).toLocaleDateString() : "Never"}
-                            </div>
-
-                            {/* Action Button */}
-                            <div style={{ textAlign: "right" }}>
-                              {u.status === "active" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleMarkLeft(u)}
-                                  style={{
-                                    height: "36px",
-                                    padding: "0 14px",
-                                    fontSize: "13px",
-                                    fontWeight: 600,
-                                    color: "#12171E",
-                                    background: "transparent",
-                                    border: "1px solid #12171E",
-                                    borderRadius: "8px",
-                                    cursor: "pointer"
-                                  }}
-                                >
-                                  Mark as left
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleEnable(u)}
-                                  style={{
-                                    height: "36px",
-                                    padding: "0 14px",
-                                    fontSize: "13px",
-                                    fontWeight: 600,
-                                    color: "#12171E",
-                                    background: "transparent",
-                                    border: "none",
-                                    textDecoration: "underline",
-                                    textUnderlineOffset: "3px",
-                                    cursor: "pointer"
-                                  }}
-                                >
-                                  Re-enable
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </section>
-            </>
-          )}
-
-          {/* TAB 2: AUDIT LOG */}
-          {activeTab === "audit" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div>
-                <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
-                  Audit Log
-                </h1>
-                <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
-                  Every login, liveness check, revocation, and automated cleanup is immutably recorded in PostgreSQL.
-                </p>
-              </div>
-
-              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-                    <thead>
-                      <tr style={{ background: "#F3EFE7", textAlign: "left", fontSize: "12px", color: "#5A6270", letterSpacing: "1px" }}>
-                        <th style={{ padding: "12px 20px" }}>TIMESTAMP</th>
-                        <th style={{ padding: "12px 20px" }}>ACTION</th>
-                        <th style={{ padding: "12px 20px" }}>ACTOR</th>
-                        <th style={{ padding: "12px 20px" }}>DETAILS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {auditLogs.map((log) => (
-                        <tr key={log.id} style={{ borderTop: "1px solid #E6E0D2" }}>
-                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                            {new Date(log.at).toLocaleString()}
-                          </td>
-                          <td style={{ padding: "12px 20px" }}>
-                            <span style={{
-                              fontSize: "12px",
-                              fontFamily: "'JetBrains Mono', monospace",
-                              padding: "2px 8px",
-                              borderRadius: "4px",
-                              background: log.action.includes("left") || log.action.includes("denied") ? "#F6DDD4" : "#E4DDCF",
-                              color: log.action.includes("left") || log.action.includes("denied") ? "#9B3A22" : "#12171E"
-                            }}>
-                              {log.action}
-                            </span>
-                          </td>
-                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                            {log.actor_id || "System"}
-                          </td>
-                          <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                            {JSON.stringify(log.detail || {})}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <AdminApplicationsTab
+              applications={applications}
+              actionLoadingId={actionLoadingId}
+              onApproveApp={handleApproveApp}
+              onRejectApp={handleRejectApp}
+              onPreviewImage={setPreviewImage}
+            />
           )}
 
           {/* TAB: INVITES */}
           {activeTab === "invites" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
-                <div>
-                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
-                    Member Invitations
-                  </h1>
-                  <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
-                    Create onboarding invite links for students. They will set their password and complete liveness verification.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(true)}
-                  className="btn-dark"
-                >
-                  + Invite Member
-                </button>
-              </div>
-
-              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
-                {invites.length === 0 ? (
-                  <div style={{ padding: "48px 24px", textAlign: "center", color: "#5A6270" }}>
-                    <div style={{ fontSize: "16px", fontWeight: 500, color: "#12171E", marginBottom: "6px" }}>
-                      No invitations yet
-                    </div>
-                    <div style={{ fontSize: "14px", marginBottom: "16px" }}>
-                      Click "Invite Member" above to create an onboarding link for a new student.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowInviteModal(true)}
-                      className="btn-dark"
-                    >
-                      + Create First Invite
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
-                      <thead>
-                        <tr style={{ background: "#F3EFE7", textAlign: "left", fontSize: "12px", color: "#5A6270", letterSpacing: "1px" }}>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>EMAIL</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>ROLE</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>TERM END</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>EXPIRES IN</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>STATUS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invites.map((inv) => (
-                          <tr key={inv.id} style={{ borderBottom: "1px solid #EAE4D6" }}>
-                            <td style={{ padding: "14px 18px", fontWeight: 500, color: "#12171E" }}>
-                              {inv.email}
-                            </td>
-                            <td style={{ padding: "14px 18px", textTransform: "capitalize", color: "#5A6270" }}>
-                              {inv.role}
-                            </td>
-                            <td style={{ padding: "14px 18px", color: "#5A6270" }}>
-                              {inv.term_end ? new Date(inv.term_end).toLocaleDateString() : "No Expiry"}
-                            </td>
-                            <td style={{ padding: "14px 18px", color: "#5A6270" }}>
-                              {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : "\u2013"}
-                            </td>
-                            <td style={{ padding: "14px 18px" }}>
-                              {inv.status === "accepted" && (
-                                <span style={{
-                                  display: "inline-block",
-                                  fontSize: "12px",
-                                  fontWeight: 500,
-                                  color: "#166534",
-                                  background: "#DCFCE7",
-                                  padding: "3px 10px",
-                                  borderRadius: "999px"
-                                }}>
-                                  Accepted
-                                </span>
-                              )}
-                              {inv.status === "pending" && (
-                                <span style={{
-                                  display: "inline-block",
-                                  fontSize: "12px",
-                                  fontWeight: 500,
-                                  color: "#9A3412",
-                                  background: "#FFEDD5",
-                                  padding: "3px 10px",
-                                  borderRadius: "999px"
-                                }}>
-                                  Pending
-                                </span>
-                              )}
-                              {inv.status === "expired" && (
-                                <span style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "6px",
-                                  fontSize: "12px",
-                                  fontWeight: 500,
-                                  color: "#475569",
-                                  background: "#F1F5F9",
-                                  padding: "3px 10px",
-                                  borderRadius: "999px"
-                                }}>
-                                  Expired
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
+            <AdminInvitesTab
+              invites={invites}
+              onShowInviteModal={() => setShowInviteModal(true)}
+            />
           )}
 
-          {/* TAB: RENEWALS DESK */}
+          {/* TAB: RENEWALS */}
           {activeTab === "renewals" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
-                <div>
-                  <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
-                    Access Renewal Requests
-                  </h1>
-                  <p style={{ color: "#5A6270", fontSize: "14px", margin: 0, maxWidth: "700px", lineHeight: 1.5 }}>
-                    48-Hour Recovery Window for accidental "Mark as Left" or expiration. Approving reactivates access across all 5 connected campus facilities. Declining or allowing 48 hours to elapse triggers permanent database erasure.
-                  </p>
-                </div>
-              </div>
+            <AdminRenewalsTab
+              renewals={renewals}
+              actionLoadingId={actionLoadingId}
+              onApproveRenewal={handleApproveRenewal}
+              onDeclineRenewal={handleDeclineRenewal}
+            />
+          )}
 
-              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
-                {renewals.length === 0 ? (
-                  <div style={{ padding: "40px 20px", textAlign: "center", color: "#5A6270" }}>
-                    <div style={{ fontSize: "16px", fontWeight: 500, color: "#12171E", marginBottom: "6px" }}>
-                      No renewal requests
-                    </div>
-                    <div style={{ fontSize: "14px" }}>
-                      Members who submit a 48-hour recovery request will appear here for administrative approval.
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
-                      <thead>
-                        <tr style={{ background: "#EAE4D7", borderBottom: "1px solid #DDD6C7" }}>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>Member</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>Revocation Cause</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600, maxWidth: "250px" }}>Stated Reason</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>Purge Countdown</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600 }}>Status</th>
-                          <th style={{ padding: "12px 18px", fontWeight: 600, textAlign: "right" }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {renewals.map((r) => (
-                          <tr key={r.id} style={{ borderBottom: "1px solid #DDD6C7" }}>
-                            <td style={{ padding: "14px 18px" }}>
-                              <div style={{ fontWeight: 600, color: "#12171E" }}>{r.name}</div>
-                              <div style={{ fontSize: "12px", color: "#5A6270" }}>{r.email}</div>
-                            </td>
-                            <td style={{ padding: "14px 18px" }}>
-                              <span style={{
-                                display: "inline-block",
-                                fontSize: "12px",
-                                fontWeight: 500,
-                                padding: "3px 8px",
-                                borderRadius: "4px",
-                                background: "#F1F5F9",
-                                color: "#334155"
-                              }}>
-                                {r.disabled_reason === "left" ? "Admin Mark as Left" :
-                                 r.disabled_reason === "term_end" ? "Term Expired" :
-                                 r.disabled_reason === "inactive" ? "60-Day Inactive" :
-                                 r.disabled_reason || "Revoked"}
-                              </span>
-                            </td>
-                            <td style={{ padding: "14px 18px", maxWidth: "250px", wordBreak: "break-word", fontSize: "13px", color: "#44403C" }}>
-                              {r.reason || "No explanation provided"}
-                            </td>
-                            <td style={{ padding: "14px 18px" }}>
-                              {r.status === "approved" ? (
-                                <span style={{ fontSize: "12px", color: "#15803D", fontWeight: 600 }}>
-                                  ✓ Restored (Active)
-                                </span>
-                              ) : r.hours_left > 0 ? (
-                                <span style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  fontSize: "12px",
-                                  fontWeight: 600,
-                                  color: "#92400E",
-                                  background: "#FEF3C7",
-                                  border: "1px solid #FDE68A",
-                                  padding: "3px 8px",
-                                  borderRadius: "999px"
-                                }}>
-                                  ⏳ {r.hours_left}h left
-                                </span>
-                              ) : (
-                                <span style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  fontSize: "12px",
-                                  fontWeight: 600,
-                                  color: "#991B1B",
-                                  background: "#FEE2E2",
-                                  border: "1px solid #FECACA",
-                                  padding: "3px 8px",
-                                  borderRadius: "999px"
-                                }}>
-                                  ⚠️ 48h Expired
-                                </span>
-                              )}
-                            </td>
-                            <td style={{ padding: "14px 18px" }}>
-                              {r.status === "approved" && (
-                                <span style={{ fontSize: "12px", fontWeight: 600, color: "#15803D", background: "#DCFCE7", padding: "3px 8px", borderRadius: "999px" }}>
-                                  Approved
-                                </span>
-                              )}
-                              {r.status === "declined" && (
-                                <span style={{ fontSize: "12px", fontWeight: 600, color: "#991B1B", background: "#FEE2E2", padding: "3px 8px", borderRadius: "999px" }}>
-                                  Declined
-                                </span>
-                              )}
-                              {r.status === "pending" && (
-                                <span style={{ fontSize: "12px", fontWeight: 600, color: "#D97706", background: "#FEF3C7", padding: "3px 8px", borderRadius: "999px" }}>
-                                  Pending Review
-                                </span>
-                              )}
-                            </td>
-                            <td style={{ padding: "14px 18px", textAlign: "right" }}>
-                              {r.status === "pending" ? (
-                                <div style={{ display: "inline-flex", gap: "8px" }}>
-                                  <button
-                                    type="button"
-                                    disabled={actionLoadingId === r.id}
-                                    onClick={() => handleApproveRenewal(r.id, r.name)}
-                                    style={{
-                                      padding: "6px 12px",
-                                      fontSize: "12px",
-                                      fontWeight: 600,
-                                      borderRadius: "6px",
-                                      border: "none",
-                                      background: "#166534",
-                                      color: "#FFFFFF",
-                                      cursor: "pointer"
-                                    }}
-                                  >
-                                    {actionLoadingId === r.id ? "Saving..." : "Approve"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={actionLoadingId === r.id}
-                                    onClick={() => handleDeclineRenewal(r.id, r.name)}
-                                    style={{
-                                      padding: "6px 12px",
-                                      fontSize: "12px",
-                                      fontWeight: 600,
-                                      borderRadius: "6px",
-                                      border: "1px solid #FECACA",
-                                      background: "#FEF2F2",
-                                      color: "#DC2626",
-                                      cursor: "pointer"
-                                    }}
-                                  >
-                                    Decline
-                                  </button>
-                                </div>
-                              ) : (
-                                <span style={{ fontSize: "12px", color: "#64748B" }}>
-                                  Resolved
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
+          {/* TAB: AUDIT LOG */}
+          {activeTab === "audit" && (
+            <AdminAuditTab auditLogs={auditLogs} />
           )}
 
           {/* TAB: CLEANUP */}
           {activeTab === "cleanup" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "600px" }}>
-              <div>
-                <h1 style={{ margin: "0 0 6px", fontFamily: "'Newsreader', Georgia, serif", fontWeight: 500, fontSize: "40px" }}>
-                  Automated Cleanup Job
-                </h1>
-                <p style={{ color: "#5A6270", fontSize: "14px", margin: 0 }}>
-                  Evaluates all student accounts against two conditions: (1) term end date expired, or (2) no activity for 60 days.
-                </p>
-              </div>
-
-              <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", padding: "28px", display: "flex", flexDirection: "column", gap: "16px" }}>
-                <h3 style={{ margin: 0, fontSize: "20px" }}>On-Demand Execution (Demo Trigger)</h3>
-                <p style={{ fontSize: "14px", color: "#5A6270", margin: 0 }}>
-                  In production, this job executes automatically every 24 hours. Click below to run it immediately and see expired accounts disabled.
-                </p>
-                <button
-                  type="button"
-                  disabled={cleaning}
-                  onClick={handleRunCleanup}
-                  className="btn-dark"
-                  style={{ alignSelf: "flex-start" }}
-                >
-                  {cleaning ? "Evaluating Accounts..." : "Run Cleanup Job Now"}
-                </button>
-              </div>
-            </div>
+            <AdminCleanupTab
+              cleaning={cleaning}
+              onRunCleanup={handleRunCleanup}
+            />
           )}
-
         </main>
       </div>
 
@@ -1683,7 +849,6 @@ export default function Admin() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

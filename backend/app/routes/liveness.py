@@ -30,15 +30,7 @@ from app.services.face_engine import (
 
 CHALLENGE_TYPES = ["turn_left", "turn_right"]
 
-class ChallengeRequest(BaseModel):
-    user_id: Optional[str] = None
-
-class ResultRequest(BaseModel):
-    challenge_id: str
-    code: str
-    passed: bool
-    fail_reason: Optional[str] = None
-    live_frame: Optional[str] = None  # Base64 camera frame captured at moment of successful liveness
+from app.schemas.liveness import ChallengeRequest, ResultRequest
 
 @router.post("/challenge")
 def create_challenge(

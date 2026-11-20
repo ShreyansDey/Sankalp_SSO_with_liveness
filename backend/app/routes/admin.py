@@ -28,17 +28,12 @@ from app.services.face_engine import extract_face_embedding
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-class CreateInviteRequest(BaseModel):
-    email: str
-    role: str = "member"
-    term_end: Optional[date] = None
-
-class DisableRequest(BaseModel):
-    reason: str = "admin"
-
-class CreateProductRequest(BaseModel):
-    name: str
-    redirect_uri: str
+from app.schemas.admin import (
+    CreateInviteRequest,
+    DisableRequest,
+    CreateProductRequest,
+    RenewalActionRequest
+)
 
 @router.post("/invites")
 def create_invite(
@@ -653,9 +648,6 @@ def get_applicant_document(
 # ==============================================================================
 # 48-Hour Accidental Revocation & Expiration Renewal Desk
 # ==============================================================================
-
-class RenewalActionRequest(BaseModel):
-    notes: Optional[str] = None
 
 @router.get("/renewals")
 def list_renewal_requests(

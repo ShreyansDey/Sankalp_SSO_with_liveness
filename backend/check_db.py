@@ -65,12 +65,13 @@ def inspect_db():
         print()
 
         # 4. RECENT AUDIT LOGS
-        logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(8).all()
+        logs = db.query(AuditLog).order_by(AuditLog.at.desc()).limit(8).all()
         print(f"--- 4. AUDIT TRAIL LOGS (Last {len(logs)}) ---")
         if not logs:
             print("  (No audit logs found)")
         for l in logs:
-            print(f" • [{l.timestamp.strftime('%H:%M:%S')}] Action: {l.action:<20} | Detail: {l.detail}")
+            log_time = l.at.strftime('%H:%M:%S') if l.at else "N/A"
+            print(f" • [{log_time}] Action: {l.action:<20} | Detail: {l.detail}")
         print()
 
     except Exception as e:

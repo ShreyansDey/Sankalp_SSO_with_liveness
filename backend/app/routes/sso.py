@@ -20,16 +20,7 @@ from app.deps import get_current_session, get_current_user_from_token
 
 router = APIRouter(tags=["sso"])
 
-class TokenRequest(BaseModel):
-    grant_type: str = "authorization_code"
-    code: str
-    client_id: str
-    client_secret: str
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-    client_id: str
-    client_secret: str
+from app.schemas.sso import TokenRequest, RefreshRequest
 
 def verify_product_secret(product: Product, secret: str) -> bool:
     """Verify client secret against stored hash (supports SHA-256 or Argon2)."""
