@@ -11,10 +11,22 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Check Python
 Write-Host "`n[1/4] Checking Python environment..." -ForegroundColor Yellow
+$PythonCandidates = @(
+    "$RootDir/venv/Scripts/python.exe",
+    "$RootDir/san_venv/Scripts/python.exe",
+    "$RootDir/.venv/Scripts/python.exe",
+    "$RootDir/backend/.venv/Scripts/python.exe"
+)
 $PythonCmd = "python"
+foreach ($cand in $PythonCandidates) {
+    if (Test-Path $cand) {
+        $PythonCmd = $cand
+        break
+    }
+}
 try {
     $pyVersion = & $PythonCmd --version 2>&1
-    Write-Host "   Detected: $pyVersion" -ForegroundColor Green
+    Write-Host "   Detected: $pyVersion ($PythonCmd)" -ForegroundColor Green
 } catch {
     Write-Host "❌ Python is not found in PATH! Please install Python 3.9+." -ForegroundColor Red
     exit 1

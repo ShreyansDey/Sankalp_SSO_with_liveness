@@ -1,0 +1,928 @@
+import React, { useState, useRef, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { apiRequest } from "../api";
+
+/**
+ * ==============================================================================
+ * REAL ACCESS / SANKALP SSO — NEW ACCOUNT REGISTRATION & ADMIN APPROVAL
+ * ==============================================================================
+ * In plain words (Layman):
+ *   This is the self-registration page. A new member enters their details:
+ *   name, email, phone number, password, snaps their recent live face photo,
+ *   and attaches a supported identity document (student ID, letter, etc.).
+ *   
+ *   Clicking "Sent to Admin Approval" forwards their application to the admin
+ *   portal. Once the administrator confirms and approves their application,
+ *   the user can sign in with their credentials.
+ * ==============================================================================
+ */
+
+export default function Register() {
+  const navigate = useNavigate();
+
+  // Form states
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Recent Clicked Image (Camera capture or photo upload)
+  const [facePhoto, setFacePhoto] = useState(""); // Base64 data URL
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  // Supported Document (PDF, PNG, JPG)
+  const [documentBase64, setDocumentBase64] = useState("");
+  const [documentName, setDocumentName] = useState("");
+  const [documentSize, setDocumentSize] = useState("");
+  const [docPreview, setDocPreview] = useState(null);
+
+  // UI status
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [submittedData, setSubmittedData] = useState(null);
+
+  // Cleanup webcam stream on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  // WebCam controls
+  const startCamera = async () => {
+    setCameraError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraActive(true);
+    } catch (err) {
+      setCameraError("Camera access denied or unavailable. You may upload a recent photo instead.");
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setFacePhoto(dataUrl);
+    stopCamera();
+  };
+
+  const handlePhotoFileUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image file for your recent photo.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setFacePhoto(event.target.result);
+      stopCamera();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Document upload handler
+  const handleDocumentUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    // Check size limit: 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Supporting document must be smaller than 10MB.");
+      return;
+    }
+
+    setDocumentName(file.name);
+    setDocumentSize((file.size / 1024).toFixed(1) + " KB");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const res = event.target.result;
+      setDocumentBase64(res);
+      if (file.type.startsWith("image/")) {
+        setDocPreview(res);
+      } else {
+        setDocPreview(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Submit to Admin Approval
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+
+    // 1. Compulsory fields validation
+    if (!fullName.trim()) {
+      setError("Full Name is compulsory.");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      setError("A valid Email Address is compulsory.");
+      return;
+    }
+    if (!phone.trim()) {
+      setError("Phone Number is compulsory.");
+      return;
+    }
+    if (!password || password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+    if (!facePhoto) {
+      setError("Recent clicked image is compulsory. Please snap a photo with your camera or upload a clear portrait.");
+      return;
+    }
+    if (!documentBase64) {
+      setError("Supported document is compulsory. Please upload your student ID, enrollment slip, or verification document.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const res = await apiRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          name: fullName.trim(),
+          phone: phone.trim(),
+          password,
+          face_photo: facePhoto,
+          document_base64: documentBase64,
+          document_name: documentName || "supporting_document.pdf"
+        })
+      });
+
+      setSubmittedData({
+        name: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        documentName: documentName || "Document attached",
+        facePhoto: facePhoto
+      });
+      setSubmitted(true);
+    } catch (err) {
+      if (err.error === "user_exists") {
+        setError("An account with this email already exists. Please log in directly.");
+      } else if (err.error === "already_pending") {
+        setError("An application for this email has already been submitted and is waiting for administrator approval.");
+      } else {
+        setError(err.message || "Failed to submit application. Please check your connection.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Quick fill helper for testing/demos
+  const fillDemoData = () => {
+    setFullName("Tanmay Bhattacharya");
+    setEmail("tanmay.bhatt@jadavpur.edu");
+    setPhone("+91 98301 23456");
+    setPassword("DemoPass123!");
+
+    // Generate a clean dummy face snapshot (200x200 canvas with avatar)
+    const canvas = document.createElement("canvas");
+    canvas.width = 240;
+    canvas.height = 240;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#E4DDCF";
+    ctx.fillRect(0, 0, 240, 240);
+    // Face circle
+    ctx.fillStyle = "#D9822B";
+    ctx.beginPath();
+    ctx.arc(120, 100, 50, 0, Math.PI * 2);
+    ctx.fill();
+    // Body curve
+    ctx.beginPath();
+    ctx.arc(120, 220, 80, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = "#12171E";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("RECENT SNAPSHOT", 120, 190);
+    setFacePhoto(canvas.toDataURL("image/jpeg", 0.9));
+
+    // Generate demo document
+    setDocumentName("Jadavpur_University_StudentID_2026.pdf");
+    setDocumentSize("142.5 KB");
+    setDocumentBase64("data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwgL0xlbmd0aCA1IDAgUiAvRmlsdGVyIC9GbGF0ZURlY29kZSA+PgpzdHJlYW0KeJzLSM3JyVcozy/KSVEEAA/4A4cKZW5kc3RyZWFtCmVuZG9iag==");
+    setError(null);
+  };
+
+  // Success Confirmation Screen
+  if (submitted) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        background: "#F3EFE7",
+        color: "#12171E",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "'Inter', system-ui, sans-serif"
+      }}>
+        {/* Top Header */}
+        <header style={{ borderBottom: "1px solid #DDD6C7", padding: "18px 48px", background: "#FBF9F4" }}>
+          <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ width: "24px", height: "24px", borderRadius: "50%", border: "2.5px solid #12171E", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#D9822B" }}></div>
+              </div>
+              <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "20px", fontWeight: "600" }}>
+                Real Access
+              </span>
+            </div>
+            <Link to="/login" style={{ color: "#12171E", fontSize: "14px", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+              Back to Sign In
+            </Link>
+          </div>
+        </header>
+
+        {/* Confirmation Card */}
+        <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px" }}>
+          <div style={{
+            background: "#FBF9F4",
+            border: "1px solid #DDD6C7",
+            borderRadius: "16px",
+            padding: "40px",
+            maxWidth: "520px",
+            width: "100%",
+            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)"
+          }}>
+            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+              <div style={{
+                width: "56px",
+                height: "56px",
+                borderRadius: "50%",
+                background: "#E7F5ED",
+                color: "#15803D",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "26px",
+                marginBottom: "14px"
+              }}>
+                ✓
+              </div>
+              <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px", fontWeight: "500", margin: "0 0 8px" }}>
+                Sent to Admin Approval
+              </h1>
+              <p style={{ color: "#5A6270", fontSize: "14px", lineHeight: "1.5", margin: 0 }}>
+                Your registration has been forwarded to the administrator portal. Once confirmed and approved by an administrator, you will be able to log in with your credentials.
+              </p>
+            </div>
+
+            {/* Application Summary Box */}
+            <div style={{
+              background: "#F3EFE7",
+              border: "1px solid #DDD6C7",
+              borderRadius: "10px",
+              padding: "16px 20px",
+              marginBottom: "24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              fontSize: "13.5px"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                {submittedData?.facePhoto && (
+                  <img
+                    src={submittedData.facePhoto}
+                    alt="Captured portrait"
+                    style={{ width: "54px", height: "54px", borderRadius: "50%", objectFit: "cover", border: "2px solid #D9822B" }}
+                  />
+                )}
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "15px", color: "#12171E" }}>{submittedData?.name}</div>
+                  <div style={{ color: "#5A6270", fontSize: "13px" }}>{submittedData?.email}</div>
+                  <div style={{ color: "#5A6270", fontSize: "12.5px" }}>{submittedData?.phone}</div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px dashed #C4BCAF", paddingTop: "10px", display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: "#5A6270" }}>Document:</span>
+                <span style={{ fontWeight: 500, color: "#12171E" }}>{submittedData?.documentName}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: "#5A6270" }}>Status:</span>
+                <span style={{
+                  background: "#FEF3C7",
+                  color: "#92400E",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  padding: "3px 10px",
+                  borderRadius: "999px"
+                }}>
+                  Pending Admin Approval
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <Link
+                to="/login"
+                style={{
+                  height: "44px",
+                  background: "#12171E",
+                  color: "#F5F1E8",
+                  borderRadius: "8px",
+                  textDecoration: "none",
+                  fontWeight: 600,
+                  fontSize: "14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                Back to Sign In
+              </Link>
+
+              <Link
+                to="/login"
+                style={{
+                  height: "42px",
+                  background: "#F5ECD7",
+                  color: "#8A4A0F",
+                  border: "1px solid #D9822B",
+                  borderRadius: "8px",
+                  textDecoration: "none",
+                  fontWeight: 600,
+                  fontSize: "13.5px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}
+              >
+                Admin Sign In to Review & Approve &rarr;
+              </Link>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // Registration Form View
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#F3EFE7",
+      color: "#12171E",
+      display: "flex",
+      flexDirection: "column",
+      fontFamily: "'Inter', system-ui, sans-serif"
+    }}>
+      {/* Header */}
+      <header style={{ borderBottom: "1px solid #DDD6C7", padding: "16px 40px", background: "#FBF9F4" }}>
+        <div style={{ maxWidth: "900px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ width: "24px", height: "24px", borderRadius: "50%", border: "2.5px solid #12171E", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#D9822B" }}></div>
+            </div>
+            <span style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "20px", fontWeight: "600" }}>
+              Real Access
+            </span>
+          </div>
+          <Link to="/login" style={{ color: "#12171E", fontSize: "13.5px", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+            Already have an account? Sign In &rarr;
+          </Link>
+        </div>
+      </header>
+
+      {/* Main Registration Card */}
+      <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "30px 16px" }}>
+        <div style={{
+          background: "#FBF9F4",
+          border: "1px solid #DDD6C7",
+          borderRadius: "16px",
+          padding: "36px 40px",
+          maxWidth: "520px",
+          width: "100%",
+          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.04)"
+        }}>
+          {/* Header Title */}
+          <div style={{ marginBottom: "20px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "1.8px", color: "#D9822B", marginBottom: "4px" }}>
+              ACCOUNT REGISTRATION
+            </div>
+            <h1 style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px", fontWeight: "500", margin: "0 0 6px" }}>
+              Create New Account
+            </h1>
+            <p style={{ color: "#5A6270", fontSize: "13.5px", lineHeight: "1.4", margin: 0 }}>
+              All fields are compulsory. Fill out your details, provide a recent live photo and a supporting document, and submit for administrator approval.
+            </p>
+          </div>
+
+          {/* Error Banner */}
+          {error && (
+            <div style={{
+              background: "#F6DDD4",
+              border: "1px solid #9B3A22",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              color: "#9B3A22",
+              fontSize: "13px",
+              marginBottom: "18px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}>
+              <span>⚠</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            
+            {/* 1. Full Name & Phone Number */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                  Full Name <span style={{ color: "#DC2626" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Rahul Sharma"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "40px",
+                    padding: "0 12px",
+                    borderRadius: "7px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    fontSize: "13.5px",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                  Phone Number <span style={{ color: "#DC2626" }}>*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="+91 98765 43210"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "40px",
+                    padding: "0 12px",
+                    borderRadius: "7px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    fontSize: "13.5px",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 2. Email Address */}
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                Email Address <span style={{ color: "#DC2626" }}>*</span>
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="you@college.edu"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: "100%",
+                  height: "40px",
+                  padding: "0 12px",
+                  borderRadius: "7px",
+                  border: "1px solid #C4BCAF",
+                  background: "#FDFBF7",
+                  fontSize: "13.5px",
+                  boxSizing: "border-box"
+                }}
+              />
+            </div>
+
+            {/* 3. Password */}
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                Password (min 8 characters) <span style={{ color: "#DC2626" }}>*</span>
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={8}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "40px",
+                    padding: "0 46px 0 12px",
+                    borderRadius: "7px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    fontSize: "13.5px",
+                    boxSizing: "border-box"
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: "absolute",
+                    right: "10px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    color: "#5A6270",
+                    cursor: "pointer",
+                    fontSize: "11.5px",
+                    fontWeight: 600
+                  }}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Recent Clicked Image (Camera / Snapshot) */}
+            <div style={{
+              background: "#F3EFE7",
+              border: "1px solid #DDD6C7",
+              borderRadius: "10px",
+              padding: "14px 16px"
+            }}>
+              <label style={{ display: "block", fontSize: "12.5px", fontWeight: "600", marginBottom: "4px" }}>
+                Recent Clicked Image <span style={{ color: "#DC2626" }}>*</span>
+              </label>
+              <p style={{ margin: "0 0 10px", fontSize: "12px", color: "#5A6270" }}>
+                Snap a live camera portrait or upload a recent clear photograph of yourself.
+              </p>
+
+              {cameraError && (
+                <div style={{ fontSize: "12px", color: "#9B3A22", marginBottom: "8px" }}>
+                  {cameraError}
+                </div>
+              )}
+
+              {/* Live Camera Viewfinder */}
+              {isCameraActive && (
+                <div style={{
+                  position: "relative",
+                  width: "100%",
+                  borderRadius: "8px",
+                  overflow: "hidden",
+                  background: "#12171E",
+                  marginBottom: "10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center"
+                }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    style={{ width: "100%", maxHeight: "240px", objectFit: "cover" }}
+                  />
+                  {/* Face outline guide */}
+                  <div style={{
+                    position: "absolute",
+                    top: "15%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    width: "130px",
+                    height: "170px",
+                    borderRadius: "50%",
+                    border: "2px dashed #D9822B",
+                    pointerEvents: "none"
+                  }} />
+                  <div style={{
+                    position: "absolute",
+                    bottom: "10px",
+                    display: "flex",
+                    gap: "8px"
+                  }}>
+                    <button
+                      type="button"
+                      onClick={capturePhoto}
+                      style={{
+                        background: "#D9822B",
+                        color: "#FFFFFF",
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "7px 16px",
+                        fontWeight: 600,
+                        fontSize: "12.5px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      📸 Snap Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      style={{
+                        background: "#2A3340",
+                        color: "#E9E4D8",
+                        border: "none",
+                        borderRadius: "6px",
+                        padding: "7px 12px",
+                        fontWeight: 500,
+                        fontSize: "12px",
+                        cursor: "pointer"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Photo Preview if already taken */}
+              {facePhoto && !isCameraActive && (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  background: "#FBF9F4",
+                  border: "1px solid #DDD6C7",
+                  borderRadius: "8px",
+                  padding: "8px 12px",
+                  marginBottom: "8px"
+                }}>
+                  <img
+                    src={facePhoto}
+                    alt="Captured portrait preview"
+                    style={{
+                      width: "56px",
+                      height: "56px",
+                      borderRadius: "6px",
+                      objectFit: "cover",
+                      border: "1.5px solid #D9822B"
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "12.5px", fontWeight: 600, color: "#15803D" }}>
+                      ✓ Recent Photo Captured
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#5A6270" }}>
+                      Portrait is ready for admin review
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setFacePhoto(""); startCamera(); }}
+                    style={{
+                      background: "#EFECE4",
+                      border: "1px solid #C4BCAF",
+                      borderRadius: "5px",
+                      padding: "4px 8px",
+                      fontSize: "11.5px",
+                      fontWeight: 500,
+                      cursor: "pointer"
+                    }}
+                  >
+                    Retake
+                  </button>
+                </div>
+              )}
+
+              {/* Camera Trigger Buttons (when camera not open and no photo) */}
+              {!isCameraActive && !facePhoto && (
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    style={{
+                      flex: 1,
+                      height: "36px",
+                      background: "#12171E",
+                      color: "#F5F1E8",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontSize: "12.5px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    <span>📷</span> Use Camera to Snap Photo
+                  </button>
+                  <label
+                    style={{
+                      flex: 1,
+                      height: "36px",
+                      background: "#EFECE4",
+                      color: "#12171E",
+                      border: "1px solid #C4BCAF",
+                      borderRadius: "6px",
+                      fontSize: "12.5px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    <span>📁</span> Upload Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoFileUpload}
+                      style={{ display: "none" }}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* 5. Supported Document */}
+            <div style={{
+              background: "#F3EFE7",
+              border: "1px solid #DDD6C7",
+              borderRadius: "10px",
+              padding: "14px 16px"
+            }}>
+              <label style={{ display: "block", fontSize: "12.5px", fontWeight: "600", marginBottom: "4px" }}>
+                Supported Document (College ID / Verification Document) <span style={{ color: "#DC2626" }}>*</span>
+              </label>
+              <p style={{ margin: "0 0 10px", fontSize: "12px", color: "#5A6270" }}>
+                Upload student ID card, library pass, or university verification document (PDF, PNG, JPG).
+              </p>
+
+              {documentBase64 ? (
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  background: "#FBF9F4",
+                  border: "1px solid #DDD6C7",
+                  borderRadius: "8px",
+                  padding: "8px 12px"
+                }}>
+                  {docPreview ? (
+                    <img
+                      src={docPreview}
+                      alt="Doc preview"
+                      style={{ width: "44px", height: "44px", borderRadius: "4px", objectFit: "cover", border: "1px solid #C4BCAF" }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: "44px",
+                      height: "44px",
+                      borderRadius: "4px",
+                      background: "#E4DDCF",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "18px"
+                    }}>
+                      📄
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "12.5px", fontWeight: 600, color: "#12171E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {documentName}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#5A6270" }}>
+                      {documentSize} &bull; Attached successfully
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setDocumentBase64(""); setDocumentName(""); setDocPreview(null); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#9B3A22",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      padding: "4px 8px"
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <label style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1.5px dashed #C4BCAF",
+                  borderRadius: "8px",
+                  padding: "16px",
+                  background: "#FDFBF7",
+                  cursor: "pointer",
+                  textAlign: "center"
+                }}>
+                  <div style={{ fontSize: "22px", marginBottom: "4px" }}>📎</div>
+                  <div style={{ fontSize: "12.5px", fontWeight: 600, color: "#12171E" }}>
+                    Click to select supporting document
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#5A6270" }}>
+                    PDF, PNG, JPG (maximum 10MB)
+                  </div>
+                  <input
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/jpg"
+                    onChange={handleDocumentUpload}
+                    style={{ display: "none" }}
+                  />
+                </label>
+              )}
+            </div>
+
+            {/* Submit Button named "Sent to Admin Approval" in place of continue */}
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                height: "46px",
+                width: "100%",
+                background: "#12171E",
+                color: "#F5F1E8",
+                border: 0,
+                borderRadius: "8px",
+                fontSize: "14.5px",
+                fontWeight: "600",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                cursor: loading ? "not-allowed" : "pointer",
+                marginTop: "6px"
+              }}
+            >
+              {loading ? "Submitting Application..." : "Sent to Admin Approval"}
+            </button>
+          </form>
+
+          {/* Quick Fill for Instant Demo Testing */}
+          <div style={{ marginTop: "18px", paddingTop: "14px", borderTop: "1px dashed #DDD6C7", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "11.5px", color: "#5A6270" }}>Quick Demo:</span>
+            <button
+              type="button"
+              onClick={fillDemoData}
+              style={{
+                background: "#EBE5D8",
+                border: "1px solid #C4BCAF",
+                borderRadius: "5px",
+                padding: "3px 10px",
+                fontSize: "11px",
+                fontWeight: 600,
+                color: "#12171E",
+                cursor: "pointer"
+              }}
+            >
+              Auto-Fill All Compulsory Fields
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

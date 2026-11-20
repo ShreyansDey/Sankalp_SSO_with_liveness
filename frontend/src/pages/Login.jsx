@@ -102,6 +102,8 @@ export default function Login() {
     } catch (err) {
       if (err.error === "account_disabled") {
         setError("Account is disabled. Please contact your organization administrator.");
+      } else if (err.error === "account_pending_approval") {
+        setError("Your registration is currently under review by an administrator. Once approved, you will be able to log in.");
       } else if (err.error === "invalid_credentials") {
         setError("Invalid email or password. Please try again.");
       } else {
@@ -261,22 +263,11 @@ export default function Login() {
         gap: "16px",
         overflowY: "auto"
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", color: "#5A6270" }}>
-          <Link
-            to="/admin/login"
-            style={{
-              fontWeight: 600,
-              color: "#8A4A0F",
-              background: "#F5ECD7",
-              padding: "3px 9px",
-              borderRadius: "6px",
-              textDecoration: "none",
-              fontSize: "12px"
-            }}
-          >
-            Administrator Access &rarr;
-          </Link>
-          <span>Have an invite?&nbsp;<Link to="/signup" style={{ fontWeight: 600, color: "#12171E" }}>Set up account</Link></span>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", fontSize: "13px", color: "#5A6270" }}>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <span><Link to="/register" style={{ fontWeight: 600, color: "#D9822B" }}>Create account &rarr;</Link></span>
+            <span>Have an invite?&nbsp;<Link to="/signup" style={{ fontWeight: 600, color: "#12171E" }}>Set up</Link></span>
+          </div>
         </div>
 
         <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -304,7 +295,7 @@ export default function Login() {
               Welcome
             </h2>
             <p style={{ margin: 0, fontSize: "13.5px", lineHeight: "1.4", color: "#5A6270" }}>
-              Sign in with the email your administrator invited.
+              Sign in with your university or club account.
             </p>
           </div>
 
@@ -367,7 +358,20 @@ export default function Login() {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              <label htmlFor="password" style={{ fontSize: "12px", fontWeight: 500 }}>Password</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label htmlFor="password" style={{ fontSize: "12px", fontWeight: 500 }}>Password</label>
+                <Link
+                  to="/forgot-password"
+                  style={{
+                    fontSize: "12px",
+                    color: "#8A4A0F",
+                    fontWeight: 600,
+                    textDecoration: "none"
+                  }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
                 <input
                   id="password"
@@ -408,6 +412,27 @@ export default function Login() {
             >
               {loading ? "Verifying..." : "Continue \u2192"}
             </button>
+
+            {/* Clickable line: Haven't any account? Create new one */}
+            <div style={{ textAlign: "center", marginTop: "14px", marginBottom: "6px" }}>
+              <Link
+                to="/register"
+                id="link-create-account"
+                style={{
+                  fontSize: "14px",
+                  color: "#12171E",
+                  textDecoration: "none",
+                  cursor: "pointer",
+                  display: "inline-block",
+                  padding: "4px 10px"
+                }}
+              >
+                Haven&apos;t any account?{" "}
+                <span style={{ color: "#D9822B", fontWeight: 700, textDecoration: "underline" }}>
+                  Create new one
+                </span>
+              </Link>
+            </div>
           </form>
 
           {/* Development Quick Fill (Only rendered in local development) */}

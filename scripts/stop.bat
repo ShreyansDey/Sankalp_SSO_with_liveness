@@ -1,6 +1,3 @@
 @echo off
 cd /d "%~dp0\.."
-echo ==========================================================
-echo   Stopping Sankalp SSO Services
-echo ==========================================================
-python scripts\manager.py stop
+powershell -ExecutionPolicy Bypass -File scripts\stop.ps1 %*

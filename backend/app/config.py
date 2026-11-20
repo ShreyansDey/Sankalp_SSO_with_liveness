@@ -33,3 +33,12 @@ APP_B_ORIGIN = os.getenv("APP_B_ORIGIN", "http://localhost:5175")
 
 # Environment indicator
 IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
+
+# SMTP & Email Settings
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_SECURE = os.getenv("SMTP_SECURE", "tls").lower()
+EMAIL_FROM = os.getenv("EMAIL_FROM", SMTP_USER or "noreply@sankalp.edu")
+EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Real Access (Sankalp SSO)")

@@ -4,7 +4,7 @@ Sankalp SSO System Manager
 Controls lifecycle: start, stop, restart, and status of all services:
  - Backend API (FastAPI)       -> http://localhost:8001
  - Central Frontend (Vite)     -> http://localhost:5180
- - Demo Apps (App A & App B)   -> http://localhost:5174 & 5175
+ - Demo Apps (Campus Clubs)    -> http://localhost:5174 through 5178
 """
 
 import sys
@@ -13,6 +13,7 @@ import time
 import json
 import subprocess
 import signal
+import socket
 from pathlib import Path
 
 # Paths
@@ -30,6 +31,25 @@ PORTS = {
     "Demo App E (Athletics Club)": 5178
 }
 
+CLEANUP_PORTS = [8000, 8001, 5173, 5180, 5174, 5175, 5176, 5177, 5178]
+
+def get_python_executable():
+    """Find the preferred Python executable (venv if present, otherwise sys.executable)."""
+    candidates = [
+        ROOT_DIR / "venv" / "Scripts" / "python.exe",
+        ROOT_DIR / "san_venv" / "Scripts" / "python.exe",
+        ROOT_DIR / ".venv" / "Scripts" / "python.exe",
+        ROOT_DIR / "backend" / ".venv" / "Scripts" / "python.exe",
+        ROOT_DIR / "venv" / "bin" / "python",
+        ROOT_DIR / "san_venv" / "bin" / "python",
+        ROOT_DIR / ".venv" / "bin" / "python",
+        ROOT_DIR / "backend" / ".venv" / "bin" / "python",
+    ]
+    for cand in candidates:
+        if cand.exists():
+            return str(cand)
+    return sys.executable
+
 def ensure_log_dir():
     LOG_DIR.mkdir(exist_ok=True)
 
@@ -38,13 +58,16 @@ def get_pids_by_port(port):
     pids = set()
     if sys.platform == "win32":
         try:
-            output = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
+            output = subprocess.check_output("netstat -ano", shell=True).decode()
             for line in output.strip().splitlines():
                 parts = line.strip().split()
                 if len(parts) >= 5 and "LISTENING" in line.upper():
-                    pid = int(parts[-1])
-                    if pid > 0:
-                        pids.add(pid)
+                    local_addr = parts[1]
+                    local_port = local_addr.rsplit(":", 1)[-1]
+                    if local_port == str(port):
+                        pid = int(parts[-1])
+                        if pid > 0:
+                            pids.add(pid)
         except Exception:
             pass
     else:
@@ -89,8 +112,6 @@ def clear_pid_file():
         except Exception:
             pass
 
-import socket
-
 def check_port_listening(port):
     """Instant, non-blocking check if a local port is listening."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -99,8 +120,9 @@ def check_port_listening(port):
 
 def seed_db():
     print("🌱 Initializing and seeding database...")
+    py_exec = get_python_executable()
     try:
-        subprocess.run([sys.executable, str(ROOT_DIR / "backend" / "seed.py")], cwd=str(ROOT_DIR), check=True)
+        subprocess.run([py_exec, str(ROOT_DIR / "backend" / "seed.py")], cwd=str(ROOT_DIR), check=True)
         print("   Database schema and demo users verified.")
     except Exception as e:
         print(f"⚠️ Warning during database seed: {e}")
@@ -117,16 +139,23 @@ def stop():
             kill_pid(pid)
             killed_any = True
 
-    # 2. Kill any leftover processes on the required ports
-    for name, port in PORTS.items():
+    # 2. Kill any leftover processes on active and legacy ports
+    for port in CLEANUP_PORTS:
         active_pids = get_pids_by_port(port)
         for pid in active_pids:
-            print(f"   Freeing port {port} ({name}, PID: {pid})...")
+            print(f"   Freeing port {port} (PID: {pid})...")
             kill_pid(pid)
             killed_any = True
 
     clear_pid_file()
-    time.sleep(1)
+
+    # Wait up to 3 seconds for ports to completely release
+    for _ in range(6):
+        any_busy = any(check_port_listening(p) for p in CLEANUP_PORTS)
+        if not any_busy:
+            break
+        time.sleep(0.5)
+
     print("✅ All services stopped successfully.")
 
 def start(foreground=False):
@@ -135,12 +164,12 @@ def start(foreground=False):
     print("=" * 65)
 
     # Make sure ports are free first
-    for name, port in PORTS.items():
+    for port in CLEANUP_PORTS:
         if check_port_listening(port):
-            print(f"⚠️ Port {port} ({name}) is already in use. Cleaning up...")
+            print(f"⚠️ Port {port} is already in use. Cleaning up...")
             for pid in get_pids_by_port(port):
                 kill_pid(pid)
-            time.sleep(0.5)
+            time.sleep(0.3)
 
     ensure_log_dir()
     seed_db()
@@ -153,12 +182,13 @@ def start(foreground=False):
     if sys.platform == "win32":
         creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
 
+    py_exec = get_python_executable()
     pids = {}
 
     # 1. Start Backend (FastAPI on 8001)
     print("⚡ Launching Backend (FastAPI) on http://localhost:8001...")
     p_backend = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"],
+        [py_exec, "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"],
         cwd=str(ROOT_DIR / "backend"),
         stdout=backend_log,
         stderr=backend_log,
@@ -169,7 +199,7 @@ def start(foreground=False):
     # 2. Start Demo Apps (Ports 5174 through 5178)
     print("⚡ Launching 5 Connected Campus Clubs (Ports 5174 through 5178)...")
     p_demos = subprocess.Popen(
-        [sys.executable, "serve_demo_apps.py"],
+        [py_exec, "serve_demo_apps.py"],
         cwd=str(ROOT_DIR / "demo-apps"),
         stdout=demos_log,
         stderr=demos_log,
@@ -213,6 +243,9 @@ def start(foreground=False):
     print("  • Backend API & Docs    : http://localhost:8001/docs")
     print("  • Demo App A (Photo)    : http://localhost:5174")
     print("  • Demo App B (Robotics) : http://localhost:5175")
+    print("  • Demo App C (Coding)   : http://localhost:5176")
+    print("  • Demo App D (Chess)    : http://localhost:5177")
+    print("  • Demo App E (Athletics): http://localhost:5178")
     print("=" * 65)
     print("  Logs saved in : ./logs/")
     print("  Stop system   : python scripts/manager.py stop")
@@ -231,7 +264,6 @@ def status():
     print("=" * 65)
     print("  📊 Sankalp SSO Service Status Board")
     print("=" * 65)
-    saved = load_saved_pids()
     for name, port in PORTS.items():
         active = check_port_listening(port)
         pids = list(get_pids_by_port(port))
@@ -240,22 +272,22 @@ def status():
         print(f"  {name:<26} Port {port:<5} : {status_str} {pid_str}")
     print("=" * 65)
 
-def restart():
+def restart(foreground=False):
     print("🔄 Restarting Sankalp SSO System...")
     stop()
     time.sleep(1)
-    start(foreground=False)
+    start(foreground=foreground)
 
 if __name__ == "__main__":
     action = sys.argv[1].lower() if len(sys.argv) > 1 else "start"
+    foreground = "--fg" in sys.argv or "-f" in sys.argv
 
     if action in ["start", "up"]:
-        foreground = "--fg" in sys.argv or "-f" in sys.argv
         start(foreground=foreground)
     elif action in ["stop", "down"]:
         stop()
     elif action in ["restart", "reload"]:
-        restart()
+        restart(foreground=foreground)
     elif action in ["status", "ps"]:
         status()
     else:

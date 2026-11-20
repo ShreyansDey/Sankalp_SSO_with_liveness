@@ -11,7 +11,15 @@ echo "=========================================================="
 
 # 1. Check Python
 echo -e "\n[1/4] Checking Python environment..."
-if command -v python3 &>/dev/null; then
+if [ -f "$ROOT_DIR/venv/bin/python" ]; then
+    PYTHON_CMD="$ROOT_DIR/venv/bin/python"
+elif [ -f "$ROOT_DIR/san_venv/bin/python" ]; then
+    PYTHON_CMD="$ROOT_DIR/san_venv/bin/python"
+elif [ -f "$ROOT_DIR/.venv/bin/python" ]; then
+    PYTHON_CMD="$ROOT_DIR/.venv/bin/python"
+elif [ -f "$ROOT_DIR/backend/.venv/bin/python" ]; then
+    PYTHON_CMD="$ROOT_DIR/backend/.venv/bin/python"
+elif command -v python3 &>/dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &>/dev/null; then
     PYTHON_CMD="python"

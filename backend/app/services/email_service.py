@@ -1,0 +1,230 @@
+import os
+import smtplib
+import ssl
+import logging
+import threading
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Optional
+
+from app.config import (
+    SMTP_HOST,
+    SMTP_PORT,
+    SMTP_USER,
+    SMTP_PASS,
+    SMTP_SECURE,
+    EMAIL_FROM,
+    EMAIL_FROM_NAME,
+    FRONTEND_ORIGIN
+)
+
+logger = logging.getLogger("sankalp.email")
+
+def send_email(
+    to_email: str,
+    subject: str,
+    text_content: str,
+    html_content: Optional[str] = None
+) -> bool:
+    """
+    Send an email via configured SMTP server (Gmail, institutional SMTP, etc.).
+    Supports STARTTLS (port 587) and SSL (port 465).
+    Never logs email passwords or tokens.
+    """
+    if not SMTP_HOST or not SMTP_USER:
+        logger.warning(
+            "SMTP is not configured (SMTP_HOST or SMTP_USER missing). Email to %s not sent via network.",
+            to_email
+        )
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    from_name = EMAIL_FROM_NAME or "Real Access (Sankalp SSO)"
+    from_addr = EMAIL_FROM or SMTP_USER
+    msg["From"] = f"{from_name} <{from_addr}>"
+    msg["To"] = to_email
+
+    # Attach plain text and HTML versions
+    part_text = MIMEText(text_content, "plain", "utf-8")
+    msg.attach(part_text)
+
+    if html_content:
+        part_html = MIMEText(html_content, "html", "utf-8")
+        msg.attach(part_html)
+
+    clean_pass = SMTP_PASS.strip() if SMTP_PASS else ""
+
+    try:
+        if SMTP_SECURE == "ssl" or SMTP_PORT == 465:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=15) as server:
+                if SMTP_USER and clean_pass:
+                    server.login(SMTP_USER, clean_pass)
+                server.send_message(msg)
+        else:
+            # STARTTLS / TLS mode (standard for Gmail port 587)
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+                server.ehlo()
+                if SMTP_SECURE in ["tls", "starttls"] or SMTP_PORT == 587:
+                    context = ssl.create_default_context()
+                    server.starttls(context=context)
+                    server.ehlo()
+                if SMTP_USER and clean_pass:
+                    server.login(SMTP_USER, clean_pass)
+                server.send_message(msg)
+
+        logger.info("Successfully sent email to %s (Subject: %s)", to_email, subject)
+        return True
+
+    except Exception as e:
+        logger.error("Failed to send email to %s: %s", to_email, str(e))
+        return False
+
+
+def build_password_reset_email(name: str, reset_link: str, reset_token: str) -> tuple[str, str]:
+    """Generate both plain-text and HTML formatted password reset templates."""
+    greeting_name = name.strip() if name and name.strip() else "Member"
+
+    text_content = f"""Hello {greeting_name},
+
+We received a request to reset your password for your Real Access account.
+
+To reset your password, please open the following link in your browser:
+{reset_link}
+
+Alternatively, you can manually enter your verification token:
+{reset_token}
+
+Security Note:
+- This reset link and token expire in 15 minutes.
+- If you did not request a password reset, no further action is required. Your account remains secure.
+
+Best regards,
+Team Sankalp & Real Access Security Team
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Password</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #12171E;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2DCCF; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);" cellspacing="0" cellpadding="0">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background-color: #12171E; padding: 28px 36px; text-align: left;">
+              <table role="presentation" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <div style="width: 28px; height: 28px; border-radius: 50%; border: 2px solid #D9822B; position: relative; text-align: center; line-height: 28px;">
+                      <span style="color: #D9822B; font-weight: bold; font-size: 16px;">&bull;</span>
+                    </div>
+                  </td>
+                  <td style="padding-left: 12px; vertical-align: middle;">
+                    <span style="color: #F5F1E8; font-size: 20px; font-weight: 600; letter-spacing: 0.3px; font-family: Georgia, serif;">Real Access</span>
+                    <span style="color: #D9822B; font-size: 11px; font-weight: 700; margin-left: 8px; letter-spacing: 1.5px; text-transform: uppercase;">SECURITY</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 36px 36px 28px 36px;">
+              <h2 style="margin: 0 0 16px 0; font-size: 22px; font-weight: 600; color: #12171E; font-family: Georgia, serif;">Password Reset Request</h2>
+              <p style="margin: 0 0 18px 0; font-size: 15px; line-height: 1.6; color: #4A5260;">
+                Hello <strong>{greeting_name}</strong>,
+              </p>
+              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #4A5260;">
+                We received a request to reset your password for your Real Access single sign-on account. Click the button below to choose a new password:
+              </p>
+
+              <!-- Action Button -->
+              <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 0 26px 0;">
+                <tr>
+                  <td style="border-radius: 8px; background-color: #D9822B;">
+                    <a href="{reset_link}" target="_blank" style="display: inline-block; padding: 13px 28px; font-size: 14px; font-weight: 600; color: #FFFFFF; text-decoration: none; border-radius: 8px; letter-spacing: 0.2px;">
+                      Reset Password &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #5A6270;">
+                Or copy and paste this link into your browser:
+              </p>
+              <div style="background-color: #F9F7F3; border: 1px solid #E6E0D4; border-radius: 6px; padding: 10px 14px; margin-bottom: 24px; word-break: break-all; font-size: 12px; color: #8A4A0F; font-family: monospace;">
+                {reset_link}
+              </div>
+
+              <!-- Verification Code box -->
+              <div style="background-color: #F3EFE7; border-left: 4px solid #D9822B; padding: 12px 16px; margin-bottom: 24px; border-radius: 0 6px 6px 0;">
+                <div style="font-size: 12px; font-weight: 600; color: #8A4A0F; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Verification Token</div>
+                <div style="font-family: monospace; font-size: 13px; color: #12171E; font-weight: bold; word-break: break-all;">
+                  {reset_token}
+                </div>
+              </div>
+
+              <div style="border-top: 1px solid #ECE7DD; padding-top: 20px;">
+                <p style="margin: 0 0 8px 0; font-size: 13px; line-height: 1.5; color: #7A8290;">
+                  &bull; This link and token are valid for <strong>15 minutes</strong>.
+                </p>
+                <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #7A8290;">
+                  &bull; If you did not request this, please ignore this email or notify your club administrator. Your account is completely secure.
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #F9F7F3; border-top: 1px solid #E6E0D4; padding: 18px 36px; text-align: center;">
+              <p style="margin: 0; font-size: 12px; color: #8C8574;">
+                Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def send_password_reset_email(
+    to_email: str,
+    name: str,
+    reset_token: str,
+    reset_link: str,
+    background: bool = True
+) -> bool:
+    """
+    Sends password reset email. If background is True, runs in a detached daemon thread
+    so user HTTP request completes instantly without waiting for network round-trips.
+    """
+    subject = "Reset your Real Access password"
+    text_content, html_content = build_password_reset_email(name, reset_link, reset_token)
+
+    if background:
+        thread = threading.Thread(
+            target=send_email,
+            args=(to_email, subject, text_content, html_content),
+            daemon=True
+        )
+        thread.start()
+        logger.info("Dispatched background password reset email to %s", to_email)
+        return True
+    else:
+        return send_email(to_email, subject, text_content, html_content)

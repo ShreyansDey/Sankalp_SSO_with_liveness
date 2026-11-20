@@ -1,38 +1,373 @@
-# api.md (names are final)
+# api.md — Complete REST API Reference Manual
 
-Base: `http://localhost:8000`. JSON unless stated. Errors: `{ "error": "short_code", "message": "plain words" }`.
+**Base URL**: `http://localhost:8000` (FastAPI Backend)  
+**Standard Format**: JSON (`application/json`) unless redirecting or downloading binary images  
+**Standard Error Schema**:
+```json
+{
+  "error": "short_machine_code",
+  "message": "Human-readable explanation of why the request failed"
+}
+```
 
-## Auth and signup
-| Method | Path | Body / query | Result |
-|---|---|---|---|
-| POST | `/auth/signup` | invite_token, name, password | creates user, returns next step `liveness` |
-| POST | `/auth/login` | email, password | if no SSO session: `next: liveness`; else sets session |
-| POST | `/auth/logout` | – | ends SSO session (never deletes account) |
-| GET | `/me` | – | current user and status |
+---
 
-## Liveness
-| POST | `/liveness/challenge` | – | challenge id, type, one-time code, expires_in 30 |
-| POST | `/liveness/result` | challenge_id, code, passed (bool) | on pass: SSO session cookie set |
+## 📚 1. Primer for Complete Beginners: How Web APIs Work
 
-## SSO and tokens
-| GET | `/authorize` | client_id, redirect_uri, state | has session → redirect with `code`; else → login page |
-| POST | `/token` | grant_type=authorization_code, code, client_id, client_secret | access_token (10 min), refresh_token |
-| POST | `/token/refresh` | refresh_token, client_id, client_secret | new access_token (fails if user not active) |
-| GET | `/userinfo` | Bearer access token | id, name, email, role |
+If you have never built a web backend, here is how clients (browsers and apps) talk to this server:
+1. **HTTP Methods**:
+   - `GET`: Asks the server to retrieve information (e.g., "Give me the list of pending applications"). Does not alter data.
+   - `POST`: Submits new data to the server to perform an action (e.g., "Here is a password, log me in" or "Save this new member").
+2. **HTTP Status Codes**:
+   - `200 OK`: Request succeeded perfectly.
+   - `302 Found`: Temporary redirection (e.g., sending the browser back to a club app with an authorization code).
+   - `400 Bad Request`: Client sent invalid or missing data (e.g., an expired invite code or a password shorter than 8 characters).
+   - `401 Unauthorized`: Authentication failed (e.g., wrong password or invalid client secret).
+   - `403 Forbidden`: Authenticated, but action is forbidden (e.g., member account is `disabled` or `pending_approval`).
+   - `404 Not Found`: The requested resource does not exist.
+   - `429 Too Many Requests`: Rate limit triggered (e.g., requesting more than 5 camera challenges in 10 minutes).
+3. **Authentication Schemes**:
+   - **Public**: Anyone can access (e.g., login or submitting registration).
+   - **Cookie (`sso_session`)**: Browser automatically attaches the `sso_session` cookie to prove active central login.
+   - **Bearer Access Token**: HTTP Header `Authorization: Bearer <jwt_token>` used by applications to fetch user identity.
+   - **Admin Protected**: Requires the caller's active session to belong to a user with `role = "admin"`.
 
-## Admin (role = admin)
-| POST | `/admin/invites` | email, role, term_end | creates invite, returns link |
-| GET | `/admin/users` | status? | list |
-| POST | `/admin/users/{id}/mark-left` | – | status `disabled`, reason `left`, revoke sessions and tokens |
-| POST | `/admin/users/{id}/disable` | reason | same revoke |
-| POST | `/admin/users/{id}/enable` | – | back to `active` |
-| POST | `/admin/users/{id}/delete-request` | – | only if disabled |
-| POST | `/admin/users/{id}/delete-approve` | – | only if 30 days passed |
-| POST | `/admin/products` | name, redirect_uri | returns client_id and secret (shown once) |
-| GET | `/admin/audit` | limit | newest first |
-| POST | `/admin/cleanup/run` | – | runs the cleanup job now (for the demo) |
+---
 
-## Rules
-- Every protected route checks that the user is `active`. Disabled users get `403 account_disabled`.
-- `/liveness/challenge` is rate limited: max 5 per 10 minutes per user.
-- Auth codes are one-time and last 60 seconds. Redirect address must match the registered one exactly.
+## 🔐 2. Authentication, Registration & e-KYC Endpoints
+
+### 2.1. Submit e-KYC Membership Application (`POST /auth/apply`)
+- **Purpose**: Used by an invited student to submit credentials, a live webcam photo, and an institutional document (student ID card).
+- **Authentication**: Public (requires valid invite token).
+- **Request Body**:
+  ```json
+  {
+    "invite_token": "raw_32_byte_secret_from_email_link",
+    "name": "Rahul Sharma",
+    "password": "StrongPassword123!",
+    "face_photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+    "document_base64": "data:application/pdf;base64,JVBERi0x...",
+    "document_name": "ju_student_id.pdf"
+  }
+  ```
+- **Responses**:
+  - `200 OK`:
+    ```json
+    {
+      "status": "ok",
+      "next": "pending_approval",
+      "user_id": "c7a8b9d0-1234-5678-90ab-cdef12345678",
+      "email": "rahul@ju.edu",
+      "message": "Application submitted successfully. Awaiting administrator review."
+    }
+    ```
+  - `400 Bad Request`: Token expired, already used, or face could not be detected in photo.
+- **Server Execution Logic**:
+  1. Hashes `invite_token` with SHA-256 and searches `invites` table.
+  2. Verifies invite is not expired and `used_at` is null.
+  3. Uses OpenCV YuNet and SFace to locate face and extract unit-normalized 128D embedding.
+  4. Saves face photo to `uploads/faces/` and document to `uploads/documents/`.
+  5. Hashes password using Argon2id.
+  6. Inserts user record with `status = "pending_approval"`.
+  7. Marks invite as `used_at = NOW()`.
+  8. Emits `application_submitted` event to audit log.
+
+---
+
+### 2.2. Self-Service Student Registration (`POST /auth/register`)
+- **Purpose**: Allows prospective campus members to apply for an account without a prior invite.
+- **Authentication**: Public.
+- **Request Body**:
+  ```json
+  {
+    "email": "ananya.roy@ju.edu",
+    "name": "Ananya Roy",
+    "phone": "+91 98765 43210",
+    "password": "SecurePassword456!",
+    "face_photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+    "document_base64": "data:image/png;base64,iVBORw0KGgo...",
+    "document_name": "library_card.png"
+  }
+  ```
+- **Responses**:
+  - `200 OK`: Account created in `pending_approval` status.
+  - `400 Bad Request`: Email already registered or invalid inputs.
+
+---
+
+### 2.3. Invite Acceptance without e-KYC (`POST /auth/signup`)
+- **Purpose**: Fast-path registration for pre-vetted administrator accounts or testing.
+- **Request Body**:
+  ```json
+  {
+    "invite_token": "raw_invite_token_string",
+    "name": "Prof. S. Mukherjee",
+    "password": "FacultyPassword789!"
+  }
+  ```
+- **Responses**:
+  - `200 OK`: Account initialized in `active` state; returns `next: "liveness"`.
+
+---
+
+### 2.4. Central Credentials Sign-In (`POST /auth/login`)
+- **Purpose**: Verifies email and password; initiates liveness challenge if no active session exists.
+- **Authentication**: Public.
+- **Request Body**:
+  ```json
+  {
+    "email": "rahul@ju.edu",
+    "password": "StrongPassword123!"
+  }
+  ```
+- **Responses**:
+  - `200 OK` (Needs Liveness Check):
+    ```json
+    {
+      "status": "ok",
+      "next": "liveness",
+      "user_id": "c7a8b9d0-1234-5678-90ab-cdef12345678",
+      "email": "rahul@ju.edu"
+    }
+    ```
+  - `200 OK` (Already Has Active Session):
+    ```json
+    {
+      "status": "ok",
+      "next": "authenticated",
+      "user": {
+        "id": "c7a8b9d0-1234-5678-90ab-cdef12345678",
+        "email": "rahul@ju.edu",
+        "name": "Rahul Sharma",
+        "role": "member"
+      }
+    }
+    ```
+  - `401 Unauthorized`: Password mismatch (`invalid_credentials`).
+  - `403 Forbidden`: Account is `disabled` or still `pending_approval`.
+
+---
+
+### 2.5. Central Logout (`POST /auth/logout`)
+- **Purpose**: Terminates the user's active Single Sign-On session cookie.
+- **Authentication**: Cookie (`sso_session`).
+- **Response**: `200 OK` with `Set-Cookie: sso_session=; Max-Age=0`. Account remains active in database.
+
+---
+
+### 2.6. Get Current User Identity (`GET /me`)
+- **Purpose**: Returns profile details of the currently authenticated browser session.
+- **Authentication**: Cookie (`sso_session`).
+- **Response**:
+  ```json
+  {
+    "id": "c7a8b9d0-1234-5678-90ab-cdef12345678",
+    "email": "rahul@ju.edu",
+    "name": "Rahul Sharma",
+    "role": "member",
+    "status": "active"
+  }
+  ```
+
+---
+
+## 🔑 3. Password Recovery & SMTP Reset Endpoints
+
+### 3.1. Initiate Password Reset (`POST /auth/forgot-password`)
+- **Purpose**: Requests a single-use 15-minute reset token dispatched via institutional SMTP email.
+- **Request Body**: `{"email": "rahul@ju.edu"}`
+- **Response**: `200 OK` (Returns uniform generic success to prevent email enumeration attacks).
+
+---
+
+### 3.2. Validate Reset Token (`POST /auth/verify-reset-token`)
+- **Purpose**: Pre-checks that a reset token from an email link is valid and unspent before presenting the new password form.
+- **Request Body**: `{"token": "raw_reset_token_from_email"}`
+- **Response**: `200 OK` with masked email: `{"valid": true, "email": "r***l@ju.edu", "name": "Rahul Sharma"}`.
+
+---
+
+### 3.3. Complete Password Reset (`POST /auth/reset-password`)
+- **Purpose**: Sets a new password, hashes it with Argon2, invalidates active sessions, and marks the token used.
+- **Request Body**:
+  ```json
+  {
+    "token": "raw_reset_token_from_email",
+    "password": "BrandNewSecurePassword2026!"
+  }
+  ```
+- **Response**: `200 OK` with `{"status": "ok", "message": "Password updated successfully."}`.
+
+---
+
+## 👁️ 4. Liveness & Biometric Verification Endpoints
+
+### 4.1. Request Liveness Challenge (`POST /liveness/challenge`)
+- **Purpose**: Generates an unpredictable physical movement challenge and a single-use verification code valid for 30 seconds.
+- **Authentication**: Public or Cookie.
+- **Request Body**: `{"user_id": "c7a8b9d0-1234-5678-90ab-cdef12345678"}`
+- **Responses**:
+  - `200 OK`:
+    ```json
+    {
+      "challenge_id": "9f8e7d6c-5432-10fe-dcba-9876543210ab",
+      "type": "turn_left",
+      "code": "849201",
+      "expires_in": 30
+    }
+    ```
+  - `429 Too Many Requests`: More than 5 requests in 10 minutes.
+
+---
+
+### 4.2. Submit Liveness & Biometric Result (`POST /liveness/result`)
+- **Purpose**: Evaluates the completed physical challenge and executes 1:1 Cosine Similarity matching against the enrolled face embedding.
+- **Request Body**:
+  ```json
+  {
+    "challenge_id": "9f8e7d6c-5432-10fe-dcba-9876543210ab",
+    "code": "849201",
+    "passed": true,
+    "live_frame": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+  }
+  ```
+- **Responses**:
+  - `200 OK`: Liveness passed and face similarity $\ge 0.40$. Returns `Set-Cookie: sso_session=<id>; HttpOnly; SameSite=Lax`.
+  - `400 Bad Request`: Code expired (older than 30 seconds) or already used.
+  - `401 Unauthorized`: Face similarity $< 0.40$ (`face_mismatch`).
+
+---
+
+## 🌐 5. OAuth 2.0 Single Sign-On (SSO) Endpoints
+
+### 5.1. OAuth Authorize Gateway (`GET /authorize`)
+- **Purpose**: Initiates single sign-on flow for connected campus clubs.
+- **Query Parameters**:
+  - `client_id`: e.g. `"app-a"`
+  - `redirect_uri`: e.g. `"http://localhost:5174/callback"`
+  - `state`: Cryptographic anti-CSRF state token generated by the club app.
+- **Responses**:
+  - `302 Found` (If active session exists): Redirects directly back to `redirect_uri?code=RAW_CODE&state=xyz`.
+  - `302 Found` (If no session exists): Redirects to `http://localhost:5173/login?client_id=app-a&redirect_uri=...`.
+
+---
+
+### 5.2. Exchange Authorization Code for Tokens (`POST /token`)
+- **Purpose**: Server-to-server token exchange endpoint called by connected applications.
+- **Request Body**:
+  ```json
+  {
+    "grant_type": "authorization_code",
+    "code": "24_char_raw_auth_code",
+    "client_id": "app-a",
+    "client_secret": "app-a-secret-key"
+  }
+  ```
+- **Responses**:
+  - `200 OK`:
+    ```json
+    {
+      "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "token_type": "bearer",
+      "expires_in": 600,
+      "refresh_token": "32_byte_raw_refresh_token_string"
+    }
+    ```
+  - `400 Bad Request`: Code invalid, expired (over 60s), or already redeemed.
+  - `401 Unauthorized`: Client ID or secret mismatch.
+  - `403 Forbidden`: User account is no longer `active`.
+
+---
+
+### 5.3. Refresh Access Token (`POST /token/refresh`)
+- **Purpose**: Obtains a new 10-minute JWT without interrupting the student's workflow.
+- **Request Body**:
+  ```json
+  {
+    "refresh_token": "32_byte_raw_refresh_token_string",
+    "client_id": "app-a",
+    "client_secret": "app-a-secret-key"
+  }
+  ```
+- **Responses**:
+  - `200 OK`: New `access_token` issued for 10 minutes.
+  - `403 Forbidden`: Member account was disabled or marked as left.
+
+---
+
+### 5.4. Query User Identity (`GET /userinfo`)
+- **Purpose**: Returns profile data to club applications presenting a Bearer access token.
+- **Headers**: `Authorization: Bearer <jwt_access_token>`
+- **Response**:
+  ```json
+  {
+    "id": "c7a8b9d0-1234-5678-90ab-cdef12345678",
+    "name": "Rahul Sharma",
+    "email": "rahul@ju.edu",
+    "role": "member"
+  }
+  ```
+
+---
+
+## 🛠️ 6. Administrator Management & Verification Endpoints
+
+*All endpoints in this section require an active session belonging to an administrator (`role = "admin"`).*
+
+### 6.1. List Pending e-KYC Applications (`GET /admin/applications`)
+- **Purpose**: Retrieves all student registrations awaiting administrative document review.
+- **Response**: Array of pending user records with metadata, creation dates, and file preview endpoints.
+
+---
+
+### 6.2. Approve e-KYC Application (`POST /admin/applications/{user_id}/approve`)
+- **Purpose**: Transitions status from `pending_approval` to `active`, activating biometric facial login.
+- **Response**: `200 OK` with `{"status": "ok", "message": "Application approved."}`.
+
+---
+
+### 6.3. Reject e-KYC Application (`POST /admin/applications/{user_id}/reject`)
+- **Purpose**: Sets status to `disabled` with reason `'application_rejected'`.
+- **Response**: `200 OK`.
+
+---
+
+### 6.4. Serve e-KYC Documents (`GET /admin/files/face/{user_id}` & `GET /admin/files/document/{user_id}`)
+- **Purpose**: Securely serves the applicant's live enrollment portrait or student ID card image for visual inspection in the Admin Console.
+
+---
+
+### 6.5. Instant Access Revocation ("Mark as Left") (`POST /admin/users/{user_id}/mark-left`)
+- **Purpose**: Immediately disables the departing member and revokes all active SSO sessions and refresh tokens in under 0.2 seconds.
+- **Response**:
+  ```json
+  {
+    "status": "ok",
+    "message": "User rahul@ju.edu marked as left. All active sessions and tokens revoked."
+  }
+  ```
+
+---
+
+### 6.6. Create Member Invitation (`POST /admin/invites`)
+- **Request Body**: `{"email": "student@ju.edu", "role": "member", "term_end": "2027-06-30"}`
+- **Response**: `200 OK` with shareable link: `http://localhost:5173/signup?token=...`.
+
+---
+
+### 6.7. Trigger Janitor Cleanup Job (`POST /admin/cleanup/run`)
+- **Purpose**: Manually triggers the automated account lifecycle janitor for live demonstration purposes.
+- **Response**:
+  ```json
+  {
+    "status": "ok",
+    "processed_at": "2026-11-20T12:00:00Z",
+    "total_disabled": 1,
+    "disabled_users": [{"id": "...", "email": "alumni@ju.edu", "reason": "term_end"}]
+  }
+  ```
+
+---
+
+### 6.8. Inspect Security Audit Log (`GET /admin/audit?limit=50`)
+- **Purpose**: Retrieves newest-first tamper-resistant audit entries for forensic review.

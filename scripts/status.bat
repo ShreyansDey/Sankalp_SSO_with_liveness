@@ -1,3 +1,3 @@
 @echo off
 cd /d "%~dp0\.."
-python scripts\manager.py status
+powershell -ExecutionPolicy Bypass -File scripts\status.ps1 %*

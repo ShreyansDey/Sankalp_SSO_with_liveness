@@ -18,7 +18,13 @@ from app.deps import get_current_session
 
 router = APIRouter(prefix="/liveness", tags=["liveness"])
 
-CHALLENGE_TYPES = ["blink", "turn_left", "turn_right"]
+from app.services.face_engine import (
+    verify_live_face_against_stored,
+    extract_face_embedding,
+    is_face_engine_ready
+)
+
+CHALLENGE_TYPES = ["turn_left", "turn_right"]
 
 class ChallengeRequest(BaseModel):
     user_id: Optional[str] = None
@@ -27,6 +33,8 @@ class ResultRequest(BaseModel):
     challenge_id: str
     code: str
     passed: bool
+    fail_reason: Optional[str] = None
+    live_frame: Optional[str] = None  # Base64 camera frame captured at moment of successful liveness
 
 @router.post("/challenge")
 def create_challenge(
@@ -185,6 +193,69 @@ def submit_result(
         }
 
     # Liveness passed!
+    # Check biometric face match if user has an enrolled face embedding
+    face_matched = False
+    match_score = None
+    if user.face_embedding:
+        if not payload.live_frame:
+            challenge.result = "fail"
+            db.commit()
+            log_audit(
+                db,
+                action="face_match_fail",
+                actor_id=user.id,
+                target_id=challenge.id,
+                detail={"score": 0.0, "reason": "No live camera frame provided for face match"}
+            )
+            return {
+                "status": "fail",
+                "passed": False,
+                "error": "face_mismatch",
+                "message": "Live camera frame required for biometric face authentication."
+            }
+
+        if is_face_engine_ready():
+            is_match, score, msg = verify_live_face_against_stored(payload.live_frame, user.face_embedding)
+            match_score = score
+            if not is_match:
+                challenge.result = "fail"
+                db.commit()
+                log_audit(
+                    db,
+                    action="face_match_fail",
+                    actor_id=user.id,
+                    target_id=challenge.id,
+                    detail={"score": score, "reason": msg}
+                )
+                return {
+                    "status": "fail",
+                    "passed": False,
+                    "error": "face_mismatch",
+                    "message": "Physical presence confirmed, but face does not match the registered member account profile."
+                }
+            face_matched = True
+        else:
+            face_matched = True
+    elif payload.live_frame and is_face_engine_ready():
+        # User has no enrolled embedding yet, but verify live_frame actually contains a real human face if engine is ready
+        emb = extract_face_embedding(payload.live_frame)
+        if emb is None:
+            challenge.result = "fail"
+            db.commit()
+            log_audit(
+                db,
+                action="liveness_fail",
+                actor_id=user.id,
+                target_id=challenge.id,
+                detail={"reason": "no_face_in_live_frame"}
+            )
+            return {
+                "status": "fail",
+                "passed": False,
+                "error": "face_not_detected",
+                "message": "No clear human face detected in the live camera frame."
+            }
+
     challenge.result = "pass"
     user.liveness_passed_at = datetime.utcnow()
     user.last_active_at = datetime.utcnow()
@@ -219,7 +290,7 @@ def submit_result(
         action="liveness_pass",
         actor_id=user.id,
         target_id=challenge.id,
-        detail={"type": challenge.type}
+        detail={"type": challenge.type, "face_matched": face_matched, "similarity_score": match_score}
     )
 
     log_audit(

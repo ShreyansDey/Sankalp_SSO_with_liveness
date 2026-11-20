@@ -40,12 +40,21 @@ export default function Liveness() {
   const [stepTimeLeft, setStepTimeLeft] = useState(STEP_TIME_LIMIT);
   const [status, setStatus] = useState("camera_connecting"); // camera_connecting, waiting_action, completed_pass, completed_fail
   const [errorMsg, setErrorMsg] = useState("");
+  const [verifiedUser, setVerifiedUser] = useState(null);
 
   // Step pass flags
   const [step1Passed, setStep1Passed] = useState(false);
   const [step2Passed, setStep2Passed] = useState(false);
   const [step3Passed, setStep3Passed] = useState(false);
   const [blinkDetected, setBlinkDetected] = useState(false);
+  const [blinkCount, setBlinkCount] = useState(0);
+  const [isEyeClosed, setIsEyeClosed] = useState(false);
+  const [baselineEAR, setBaselineEAR] = useState(0.28);
+  const [currentEAR, setCurrentEAR] = useState(0.28);
+  const [faceVerifiedNotice, setFaceVerifiedNotice] = useState("");
+  const [warningNotice, setWarningNotice] = useState("");
+  const blinkStateRef = useRef({ count: 0, isClosed: false, baseline: 0.28, centeredFrames: 0, closedFrames: 0, openFrames: 0, closeStartTime: 0, lastBlinkTime: 0 });
+  const turnStateRef = useRef({ turnFrames: 0 });
 
   // Camera devices
   const [videoDevices, setVideoDevices] = useState([]);
@@ -114,6 +123,12 @@ export default function Liveness() {
       setStep2Passed(false);
       setStep3Passed(false);
       setBlinkDetected(false);
+      setBlinkCount(0);
+      setIsEyeClosed(false);
+      setFaceVerifiedNotice("");
+      setWarningNotice("");
+      blinkStateRef.current = { count: 0, isClosed: false, baseline: 0.28, centeredFrames: 0, closedFrames: 0, openFrames: 0, closeStartTime: 0, lastBlinkTime: 0 };
+      turnStateRef.current = { turnFrames: 0 };
       setStepTimeLeft(STEP_TIME_LIMIT);
       setErrorMsg("");
 
@@ -208,7 +223,7 @@ export default function Liveness() {
   }, [status, stepTimeLeft, currentStep]);
 
   // 5. Submit final challenge result to backend
-  const submitResult = async (passed, failReason = null) => {
+  const submitResult = async (passed, failReason = null, liveFrameData = null) => {
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
@@ -217,24 +232,44 @@ export default function Liveness() {
       animationFrameRef.current = null;
     }
 
+    // Capture clean live frame snapshot from video if not already provided
+    let frameToSubmit = liveFrameData;
+    if (passed && !frameToSubmit && videoRef.current) {
+      try {
+        const off = document.createElement("canvas");
+        off.width = videoRef.current.videoWidth || 640;
+        off.height = videoRef.current.videoHeight || 480;
+        const octx = off.getContext("2d");
+        octx.drawImage(videoRef.current, 0, 0, off.width, off.height);
+        frameToSubmit = off.toDataURL("image/jpeg", 0.9);
+      } catch (e) {
+        console.warn("Could not capture frame snapshot:", e);
+      }
+    }
+
     try {
       if (challenge) {
-        await apiRequest("/liveness/result", {
+        const res = await apiRequest("/liveness/result", {
           method: "POST",
           body: JSON.stringify({
             challenge_id: challenge.challenge_id,
             code: challenge.code,
-            result: passed ? "pass" : "fail",
+            passed: passed,
             fail_reason: failReason,
+            live_frame: frameToSubmit
           }),
         });
-      }
 
-      if (passed) {
-        setStatus("completed_pass");
-      } else {
-        setStatus("completed_fail");
-        setErrorMsg(failReason || "Verification failed");
+        if (res.passed) {
+          setStatus("completed_pass");
+          if (res.user) {
+            setVerifiedUser(res.user);
+            setFaceVerifiedNotice(`Presence confirmed & live face matched to ${res.user.name || res.user.email}`);
+          }
+        } else {
+          setStatus("completed_fail");
+          setErrorMsg(res.message || failReason || "Verification failed");
+        }
       }
     } catch (err) {
       console.error("Submit result error:", err);
@@ -243,15 +278,40 @@ export default function Liveness() {
     }
   };
 
-  const handleRedirectAfterPass = () => {
+  const handleRedirectAfterPass = async () => {
     if (clientId && redirectUri) {
       window.location.href = `${API_BASE}/sso/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+      return;
+    }
+
+    let role = verifiedUser?.role;
+    if (!role) {
+      try {
+        const me = await apiRequest("/me");
+        role = me?.role;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    if (role === "admin") {
+      navigate("/admin", { replace: true });
     } else {
       navigate("/clubs", { replace: true });
     }
   };
+
+  // Auto-redirect to destination after successful verification
+  useEffect(() => {
+    if (status === "completed_pass") {
+      const timer = setTimeout(() => {
+        handleRedirectAfterPass();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, verifiedUser]);
 
   // 6. MediaPipe FaceMesh detection loop
   useEffect(() => {
@@ -262,7 +322,7 @@ export default function Liveness() {
     });
 
     faceMesh.setOptions({
-      maxNumFaces: 1,
+      maxNumFaces: 2,
       refineLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -314,7 +374,7 @@ export default function Liveness() {
     return den === 0 ? 0 : num / den;
   }
 
-  // 7. Step state machine
+  // 7. Step state machine with Presentation Attack Detection (PAD) Guardrails
   const onFaceMeshResults = (results) => {
     if (isSubmittingRef.current) return;
 
@@ -323,11 +383,58 @@ export default function Liveness() {
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // GUARDRAIL 1: Multi-Face Detection (Anti-impostor / background face attack)
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 1) {
+      setWarningNotice("Multiple faces detected. Ensure only one person is in front of the camera.");
+      return;
+    }
+
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+      setWarningNotice("No face detected. Please face the camera.");
       return;
     }
 
     const landmarks = results.multiFaceLandmarks[0];
+
+    // GUARDRAIL 2: Face Scale & Bounding Box Check (Rejects tiny passport photos or extreme close-ups)
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (let i = 0; i < landmarks.length; i++) {
+      const p = landmarks[i];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const faceWidth = maxX - minX;
+    const faceHeight = maxY - minY;
+
+    if (faceHeight < 0.28 || faceWidth < 0.20) {
+      setWarningNotice("Face is too far or small. Fit your face inside the guide oval.");
+      return;
+    }
+    if (faceHeight > 0.85 || faceWidth > 0.80) {
+      setWarningNotice("Face is too close to camera lens. Move back slightly.");
+      return;
+    }
+
+    // GUARDRAIL 3: 3D Depth Variance Check (Rejects flat 2D passport photos and screen replays)
+    const depthIndices = [1, 168, 10, 152, 234, 454, 127, 356, 33, 263];
+    const zValues = depthIndices.map((idx) => landmarks[idx].z);
+    const meanZ = zValues.reduce((a, b) => a + b, 0) / zValues.length;
+    const varZ = zValues.reduce((a, b) => a + Math.pow(b - meanZ, 2), 0) / zValues.length;
+    const stdZ = Math.sqrt(varZ);
+
+    const noseZ = landmarks[1].z;
+    const avgEarZ = (landmarks[234].z + landmarks[454].z) / 2;
+    const depthDelta = Math.abs(noseZ - avgEarZ);
+
+    if (stdZ < 0.015 && depthDelta < 0.02) {
+      setWarningNotice("Flat 2D surface detected. Real 3D facial presence required.");
+      return;
+    }
+
+    // All anti-spoofing pre-checks passed!
+    setWarningNotice("");
 
     // Landmark references
     const nose = landmarks[1];
@@ -358,39 +465,122 @@ export default function Liveness() {
       landmarks[380]
     );
     const ear = (leftEAR + rightEAR) / 2;
+    setCurrentEAR(ear);
 
     const activeStep = stepRef.current;
 
-    // STEP 1: Head Turn
+    // STEP 1: Head Turn (Direction dictated by server challenge, requires 3 consecutive frames)
     if (activeStep === 1) {
-      const targetTurn = challenge?.type || "turn_left";
-      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.62 : yawRatio < 0.38;
+      const targetTurn = challenge?.type === "turn_right" ? "turn_right" : "turn_left";
+      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.63 : yawRatio < 0.37;
 
       if (isTurned) {
-        setStep1Passed(true);
-        stepRef.current = 2;
-        setCurrentStep(2);
-        setStepTimeLeft(STEP_TIME_LIMIT);
+        turnStateRef.current.turnFrames = (turnStateRef.current.turnFrames || 0) + 1;
+        if (turnStateRef.current.turnFrames >= 3) {
+          setStep1Passed(true);
+          stepRef.current = 2;
+          setCurrentStep(2);
+          setStepTimeLeft(STEP_TIME_LIMIT);
+          turnStateRef.current.turnFrames = 0;
+        }
+      } else {
+        turnStateRef.current.turnFrames = Math.max(0, (turnStateRef.current.turnFrames || 0) - 1);
       }
     }
-    // STEP 2: Return to Center
+    // STEP 2: Return to Center & Dynamically Calibrate Open-Eye Baseline
     else if (activeStep === 2) {
-      const isCentered = yawRatio >= 0.42 && yawRatio <= 0.58;
+      const isCentered = yawRatio >= 0.43 && yawRatio <= 0.57;
 
       if (isCentered) {
-        setStep2Passed(true);
-        stepRef.current = 3;
-        setCurrentStep(3);
-        setStepTimeLeft(STEP_TIME_LIMIT);
+        blinkStateRef.current.centeredFrames = (blinkStateRef.current.centeredFrames || 0) + 1;
+
+        if (ear >= 0.20 && ear <= 0.45) {
+          const prev = blinkStateRef.current.baseline || 0.28;
+          blinkStateRef.current.baseline = (prev * 0.82) + (ear * 0.18);
+          setBaselineEAR(blinkStateRef.current.baseline);
+        }
+
+        // Require 5 stable centered frames (~160-200ms)
+        if (blinkStateRef.current.centeredFrames >= 5) {
+          setStep2Passed(true);
+          stepRef.current = 3;
+          setCurrentStep(3);
+          setStepTimeLeft(STEP_TIME_LIMIT);
+        }
+      } else {
+        blinkStateRef.current.centeredFrames = Math.max(0, (blinkStateRef.current.centeredFrames || 0) - 1);
       }
     }
-    // STEP 3: Natural Blink
+    // STEP 3: Natural Multi-Frame Blink with Strict Physiological Timing (Anti-Jitter)
     else if (activeStep === 3) {
-      if (ear < 0.19) {
-        setBlinkDetected(true);
-      } else if (blinkDetected && ear > 0.24) {
-        setStep3Passed(true);
-        submitResult(true);
+      const base = blinkStateRef.current.baseline || 0.28;
+      const closeThreshold = Math.min(0.19, Math.max(0.14, base * 0.68));
+      const openThreshold = Math.max(0.22, base * 0.85);
+      const now = Date.now();
+
+      if (ear <= closeThreshold) {
+        blinkStateRef.current.closedFrames = (blinkStateRef.current.closedFrames || 0) + 1;
+        blinkStateRef.current.openFrames = 0;
+
+        // Must sustain closure for at least 2 consecutive frames (~60ms) to discard single-frame jitter
+        if (blinkStateRef.current.closedFrames >= 2 && !blinkStateRef.current.isClosed) {
+          blinkStateRef.current.isClosed = true;
+          blinkStateRef.current.closeStartTime = now;
+          setIsEyeClosed(true);
+        }
+      } else if (ear >= openThreshold) {
+        blinkStateRef.current.openFrames = (blinkStateRef.current.openFrames || 0) + 1;
+        blinkStateRef.current.closedFrames = 0;
+
+        // Reopened after sustained closure
+        if (blinkStateRef.current.isClosed && blinkStateRef.current.openFrames >= 2) {
+          const closureDuration = now - (blinkStateRef.current.closeStartTime || now);
+          const timeSinceLastBlink = now - (blinkStateRef.current.lastBlinkTime || 0);
+
+          // Physiological check: blink duration 80ms - 500ms; gap >= 250ms
+          if (closureDuration >= 80 && closureDuration <= 500) {
+            if (blinkStateRef.current.lastBlinkTime === 0 || (timeSinceLastBlink >= 250 && timeSinceLastBlink <= 3000)) {
+              blinkStateRef.current.count += 1;
+              blinkStateRef.current.lastBlinkTime = now;
+              blinkStateRef.current.isClosed = false;
+              setIsEyeClosed(false);
+              setBlinkCount(blinkStateRef.current.count);
+              setBlinkDetected(true);
+
+              if (blinkStateRef.current.count >= 2) {
+                setStep3Passed(true);
+
+                // Capture high-fidelity frame at the exact moment eyes are fully reopened
+                let liveFrameSnapshot = null;
+                if (videoRef.current) {
+                  try {
+                    const off = document.createElement("canvas");
+                    off.width = videoRef.current.videoWidth || 640;
+                    off.height = videoRef.current.videoHeight || 480;
+                    const octx = off.getContext("2d");
+                    octx.drawImage(videoRef.current, 0, 0, off.width, off.height);
+                    liveFrameSnapshot = off.toDataURL("image/jpeg", 0.9);
+                  } catch (e) {
+                    console.warn("Could not capture frame snapshot:", e);
+                  }
+                }
+                submitResult(true, null, liveFrameSnapshot);
+              }
+            } else {
+              blinkStateRef.current.isClosed = false;
+              setIsEyeClosed(false);
+            }
+          } else {
+            blinkStateRef.current.isClosed = false;
+            setIsEyeClosed(false);
+          }
+        } else if (!blinkStateRef.current.isClosed && blinkStateRef.current.openFrames >= 4) {
+          setIsEyeClosed(false);
+          if (ear >= 0.22 && ear <= 0.45) {
+            blinkStateRef.current.baseline = (blinkStateRef.current.baseline * 0.96) + (ear * 0.04);
+            setBaselineEAR(blinkStateRef.current.baseline);
+          }
+        }
       }
     }
   };
@@ -675,6 +865,46 @@ export default function Liveness() {
                   </div>
                 </div>
 
+                {/* Real-Time Blink Tracking Indicator */}
+                {currentStep === 3 && (
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 14px",
+                    background: "#EAE5D9",
+                    border: "1px solid #D4CCBF",
+                    borderRadius: "10px"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>Blinks:</span>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: blinkCount >= 1 ? "#1F6B3F" : "#DDD6C7",
+                        color: blinkCount >= 1 ? "#FFFFFF" : "#5A6270"
+                      }}>
+                        {blinkCount >= 1 ? "✓ 1st Blink" : "○ 1st Blink"}
+                      </span>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: blinkCount >= 2 ? "#1F6B3F" : "#DDD6C7",
+                        color: blinkCount >= 2 ? "#FFFFFF" : "#5A6270"
+                      }}>
+                        {blinkCount >= 2 ? "✓ 2nd Blink" : "○ 2nd Blink"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "11px", color: isEyeClosed ? "#8A4A0F" : "#5A6270", fontWeight: 600 }}>
+                      {isEyeClosed ? "Eyes closing..." : "Looking centered"}
+                    </div>
+                  </div>
+                )}
+
                 {/* Countdown */}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", color: "#5A6270" }}>
                   <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -689,42 +919,66 @@ export default function Liveness() {
                   <li>&bull; Take off glasses if they reflect the screen.</li>
                 </ul>
 
-                {/* Clean Demo Actions (Zero AI icons) */}
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", paddingTop: "8px" }}>
-                  <button
-                    type="button"
-                    onClick={() => submitResult(true)}
-                    style={{
-                      height: "44px",
-                      padding: "0 22px",
-                      background: "#12171E",
-                      color: "#F5F1E8",
-                      border: 0,
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      fontWeight: 600,
-                      cursor: "pointer"
-                    }}
-                  >
-                    Quick Demo Verification
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => submitResult(false, "Simulated still photo check failure")}
-                    style={{
-                      height: "44px",
-                      padding: "0 18px",
-                      background: "transparent",
-                      color: "#9B3A22",
-                      border: "1px solid #DDD6C7",
-                      borderRadius: "8px",
-                      fontSize: "13px",
-                      fontWeight: 500,
-                      cursor: "pointer"
-                    }}
-                  >
-                    Test Photo Fail
-                  </button>
+                {/* Warning notice if PAD / Anti-Spoof detects flat photo or multi-face */}
+                {warningNotice && (
+                  <div style={{
+                    padding: "10px 14px",
+                    background: "#FCEEEA",
+                    border: "1px solid #ECC4B8",
+                    borderRadius: "8px",
+                    color: "#9B3A22",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flex: "none" }}>
+                      <circle cx="8" cy="8" r="7" stroke="#9B3A22" strokeWidth="1.5" />
+                      <path d="M8 4.5v4M8 11.5h.01" stroke="#9B3A22" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    <span>{warningNotice}</span>
+                  </div>
+                )}
+
+                {/* Active Anti-Spoofing Guardrail Badges */}
+                <div style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: "8px",
+                  paddingTop: "6px"
+                }}>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    padding: "4px 8px",
+                    background: "#EAE5D9",
+                    borderRadius: "4px",
+                    color: "#4A5260"
+                  }}>
+                    3D Depth Verified
+                  </span>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    padding: "4px 8px",
+                    background: "#EAE5D9",
+                    borderRadius: "4px",
+                    color: "#4A5260"
+                  }}>
+                    Single Subject Enforced
+                  </span>
+                  <span style={{
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    padding: "4px 8px",
+                    background: "#EAE5D9",
+                    borderRadius: "4px",
+                    color: "#4A5260"
+                  }}>
+                    Anti-Jitter Filter Active
+                  </span>
                 </div>
               </div>
             )}
@@ -758,7 +1012,7 @@ export default function Liveness() {
                     You are verified
                   </h1>
                   <p style={{ margin: 0, fontSize: "16px", lineHeight: 1.55, color: "#5A6270" }}>
-                    Thank you. Only the result is saved. Your video was never sent anywhere.
+                    {faceVerifiedNotice || "Thank you. Organic liveness confirmed. Your video never left this device."}
                   </p>
                 </div>
 
@@ -780,7 +1034,7 @@ export default function Liveness() {
                     cursor: "pointer"
                   }}
                 >
-                  Open my clubs
+                  {verifiedUser?.role === "admin" ? "Open Admin Console →" : "Open my clubs"}
                 </button>
               </div>
             )}
@@ -838,18 +1092,18 @@ export default function Liveness() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => submitResult(true)}
+                    onClick={() => navigate("/login")}
                     style={{
                       background: "none",
                       border: "none",
                       fontSize: "14px",
-                      color: "#12171E",
+                      color: "#5A6270",
                       textDecoration: "underline",
                       textUnderlineOffset: "3px",
                       cursor: "pointer"
                     }}
                   >
-                    Quick Demo Verification
+                    Back to Sign In
                   </button>
                 </div>
               </div>

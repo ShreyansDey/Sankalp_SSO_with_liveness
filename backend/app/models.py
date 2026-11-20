@@ -13,20 +13,29 @@ class User(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    phone = Column(String(50), nullable=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, default="member")  # admin, member
-    status = Column(String(50), nullable=False, default="active")  # active, disabled, deleted
+    status = Column(String(50), nullable=False, default="active")  # active, pending_approval, disabled, deleted
     term_end = Column(Date, nullable=True)
     last_active_at = Column(DateTime, nullable=True)
     liveness_passed_at = Column(DateTime, nullable=True)
     disabled_at = Column(DateTime, nullable=True)
-    disabled_reason = Column(String(50), nullable=True)  # left, term_end, inactive, admin
+    disabled_reason = Column(String(50), nullable=True)  # left, term_end, inactive, admin, application_rejected
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # e-KYC and Biometric Face Identity Fields
+    face_embedding = Column(JSON, nullable=True)  # 128-dimensional float embedding vector
+    document_path = Column(String(500), nullable=True)  # Stored path of supporting document
+    face_photo_path = Column(String(500), nullable=True)  # Stored path of live enrollment face photo
+    approved_at = Column(DateTime, nullable=True)  # Timestamp when admin approved application
+    approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)  # Admin user id
 
     sso_sessions = relationship("SsoSession", back_populates="user", cascade="all, delete-orphan")
     auth_codes = relationship("AuthCode", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     liveness_challenges = relationship("LivenessChallenge", back_populates="user", cascade="all, delete-orphan")
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
 
 class Invite(Base):
     __tablename__ = "invites"
@@ -113,3 +122,15 @@ class AuditLog(Base):
     action = Column(String(100), nullable=False, index=True)
     target_id = Column(String(36), nullable=True, index=True)  # user id or product id
     detail = Column(JSON, nullable=True)
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(255), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="password_reset_tokens")

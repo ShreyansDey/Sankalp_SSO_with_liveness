@@ -1,3 +1,8 @@
+import os
+import re
+import uuid
+import base64
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
@@ -6,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
-from app.models import User, Invite, SsoSession
+from app.models import User, Invite, SsoSession, PasswordResetToken
 from app.security import (
     hash_password,
     verify_password,
@@ -14,15 +19,41 @@ from app.security import (
     generate_random_token
 )
 from app.audit import log_audit
-from app.config import SSO_SESSION_HOURS, IS_PRODUCTION
+from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN
 from app.deps import get_current_session, get_current_user_from_session
+from app.services.face_engine import extract_face_embedding
+from app.services.email_service import send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Upload storage directories
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+FACES_DIR = UPLOAD_DIR / "faces"
+DOCS_DIR = UPLOAD_DIR / "documents"
+FACES_DIR.mkdir(parents=True, exist_ok=True)
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 class SignupRequest(BaseModel):
     invite_token: str
     name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
+
+class ApplyRequest(BaseModel):
+    invite_token: str
+    name: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+    face_photo: str  # Base64 data URL from webcam snapshot
+    document_base64: Optional[str] = None  # Base64 supporting document (Student ID / letter)
+    document_name: Optional[str] = None
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    name: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+    face_photo: str = Field(..., min_length=10)  # Base64 data URL from camera snapshot or image upload
+    document_base64: str = Field(..., min_length=10)  # Base64 document
+    document_name: Optional[str] = "supporting_document.pdf"
 
 class LoginRequest(BaseModel):
     email: str
@@ -30,9 +61,274 @@ class LoginRequest(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class VerifyResetTokenRequest(BaseModel):
+    token: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8)
+
+@router.post("/apply")
+def apply_membership(payload: ApplyRequest, db: Session = Depends(get_db)):
+    """
+    e-KYC Onboarding: Invite acceptance with live face snapshot and supporting document.
+    Extracts 128D biometric embedding vector and creates user in 'pending_approval' status.
+    Requires manual administrator review and confirmation before login is allowed.
+    """
+    token_h = hash_token(payload.invite_token)
+    invite = db.query(Invite).filter(Invite.token_hash == token_h).first()
+
+    if not invite:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_invite", "message": "Invite token is invalid"}
+        )
+
+    if invite.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invite_used", "message": "This invite token has already been used"}
+        )
+
+    if invite.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invite_expired", "message": "Invite token has expired"}
+        )
+
+    existing = db.query(User).filter(User.email == invite.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "user_exists", "message": "An account with this email already exists"}
+        )
+
+    # 1. Verify and extract face embedding vector
+    embedding = extract_face_embedding(payload.face_photo)
+    if embedding is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "face_not_detected",
+                "message": "Could not detect a clear, centered face in the captured portrait. Please ensure adequate lighting and face the camera directly."
+            }
+        )
+
+    user_id = str(uuid.uuid4())
+
+    # 2. Save face photo snapshot for admin visual verification
+    face_filename = f"{user_id}.jpg"
+    face_path = FACES_DIR / face_filename
+    try:
+        if "," in payload.face_photo:
+            _, raw_b64 = payload.face_photo.split(",", 1)
+        else:
+            raw_b64 = payload.face_photo
+        with open(face_path, "wb") as f:
+            f.write(base64.b64decode(raw_b64))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_photo", "message": "Failed to decode captured portrait image"}
+        )
+
+    # 3. Save supporting document if provided
+    doc_path_str = None
+    if payload.document_base64:
+        try:
+            safe_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', payload.document_name or "student_id.jpg")
+            doc_filename = f"{user_id}_{safe_name}"
+            doc_file = DOCS_DIR / doc_filename
+            if "," in payload.document_base64:
+                _, doc_b64 = payload.document_base64.split(",", 1)
+            else:
+                doc_b64 = payload.document_base64
+            with open(doc_file, "wb") as f:
+                f.write(base64.b64decode(doc_b64))
+            doc_path_str = str(doc_file)
+        except Exception:
+            pass  # Non-fatal if document fails to write
+
+    # 4. Create user in pending_approval status
+    new_user = User(
+        id=user_id,
+        email=invite.email,
+        name=payload.name,
+        password_hash=hash_password(payload.password),
+        role=invite.role,
+        status="pending_approval",
+        term_end=invite.term_end,
+        created_at=datetime.utcnow(),
+        last_active_at=datetime.utcnow(),
+        face_embedding=embedding,
+        face_photo_path=str(face_path),
+        document_path=doc_path_str
+    )
+    db.add(new_user)
+    invite.used_at = datetime.utcnow()
+    db.commit()
+    db.refresh(new_user)
+
+    log_audit(
+        db,
+        action="application_submitted",
+        actor_id=new_user.id,
+        target_id=new_user.id,
+        detail={
+            "email": new_user.email,
+            "has_document": bool(doc_path_str),
+            "status": "pending_approval"
+        }
+    )
+
+    return {
+        "status": "ok",
+        "next": "pending_approval",
+        "message": "Your membership application and supporting documents have been submitted for administrator review.",
+        "user_id": new_user.id,
+        "email": new_user.email
+    }
+
+@router.post("/register")
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    """
+    Self-service account registration.
+    User inputs email, name, phone number, password, recent clicked image, and supporting document.
+    All fields are compulsory. Creates account in 'pending_approval' status, awaiting admin review.
+    Once confirmed by the admin, user can log in with their credentials.
+    """
+    email_clean = payload.email.strip().lower()
+    if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email_clean):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_email", "message": "Please provide a valid email address."}
+        )
+
+    if not payload.name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "missing_name", "message": "Full Name is required."}
+        )
+
+    if not payload.phone.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "missing_phone", "message": "Phone number is required."}
+        )
+
+    # Check if user already exists
+    existing = db.query(User).filter(func.lower(User.email) == email_clean).first()
+    if existing:
+        if existing.status == "pending_approval":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "already_pending",
+                    "message": "An application with this email has already been submitted and is awaiting administrator approval."
+                }
+            )
+        elif existing.status == "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "user_exists", "message": "An account with this email already exists. Please log in."}
+            )
+        elif existing.status == "disabled":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "account_disabled", "message": "This account has been disabled. Please contact your organization administrator."}
+            )
+
+    user_id = str(uuid.uuid4())
+
+    # 1. Biometric embedding extraction (graceful if ONNX models not downloaded)
+    embedding = None
+    try:
+        embedding = extract_face_embedding(payload.face_photo)
+    except Exception:
+        embedding = None
+
+    # 2. Save face photo snapshot to uploads directory
+    face_filename = f"{user_id}.jpg"
+    face_path = FACES_DIR / face_filename
+    try:
+        if "," in payload.face_photo:
+            _, raw_b64 = payload.face_photo.split(",", 1)
+        else:
+            raw_b64 = payload.face_photo
+        with open(face_path, "wb") as f:
+            f.write(base64.b64decode(raw_b64))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_photo", "message": "Failed to decode the captured portrait image. Please retake it."}
+        )
+
+    # 3. Save supporting document
+    doc_path_str = None
+    try:
+        safe_name = re.sub(r'[^a-zA-Z0-9_\.-]', '_', payload.document_name or "supporting_doc.pdf")
+        doc_filename = f"{user_id}_{safe_name}"
+        doc_file = DOCS_DIR / doc_filename
+        if "," in payload.document_base64:
+            _, doc_b64 = payload.document_base64.split(",", 1)
+        else:
+            doc_b64 = payload.document_base64
+        with open(doc_file, "wb") as f:
+            f.write(base64.b64decode(doc_b64))
+        doc_path_str = str(doc_file)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_document", "message": "Failed to decode supporting document. Please re-upload your document."}
+        )
+
+    # 4. Create user in pending_approval status
+    new_user = User(
+        id=user_id,
+        email=email_clean,
+        name=payload.name.strip(),
+        phone=payload.phone.strip(),
+        password_hash=hash_password(payload.password),
+        role="member",
+        status="pending_approval",
+        created_at=datetime.utcnow(),
+        last_active_at=datetime.utcnow(),
+        face_embedding=embedding,
+        face_photo_path=str(face_path),
+        document_path=doc_path_str
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    log_audit(
+        db,
+        action="application_submitted",
+        actor_id=new_user.id,
+        target_id=new_user.id,
+        detail={
+            "email": new_user.email,
+            "name": new_user.name,
+            "phone": new_user.phone,
+            "has_document": True,
+            "status": "pending_approval"
+        }
+    )
+
+    return {
+        "status": "ok",
+        "next": "pending_approval",
+        "message": "Your registration has been forwarded to the administrator portal. Once confirmed by the administrator, you can log in.",
+        "user_id": new_user.id,
+        "email": new_user.email
+    }
+
 @router.post("/signup")
 def signup(payload: SignupRequest, db: Session = Depends(get_db)):
-    """M1/FR1: Signup with invite token, name and password."""
+    """M1/FR1: Standard signup with invite token, name and password."""
     token_h = hash_token(payload.invite_token)
     invite = db.query(Invite).filter(Invite.token_hash == token_h).first()
 
@@ -134,7 +430,25 @@ def login(
 
     if payload.name and payload.name.strip():
         user.name = payload.name.strip()
-        db.commit()
+    if payload.phone and payload.phone.strip():
+        user.phone = payload.phone.strip()
+    db.commit()
+
+    if user.status == "pending_approval":
+        log_audit(
+            db,
+            action="access_denied",
+            actor_id=user.id,
+            target_id=user.id,
+            detail={"status": user.status, "reason": "pending_admin_approval"}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "account_pending_approval",
+                "message": "Your membership registration is currently under review by an administrator. Please wait for ID verification."
+            }
+        )
 
     if user.status != "active":
         log_audit(
@@ -146,10 +460,10 @@ def login(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "account_disabled", "message": f"Account is {user.status}"}
+            detail={"error": "account_disabled", "message": f"Account is {user.status} ({user.disabled_reason or 'access suspended'})"}
         )
 
-    # Standard member/student: requires mandatory 3-step liveness camera check
+    # All users (including administrators) require password verification + mandatory liveness camera check
     return {
         "status": "ok",
         "next": "liveness",
@@ -158,80 +472,18 @@ def login(
     }
 
 @router.post("/admin-login")
-def admin_login(
-    payload: LoginRequest,
-    request: Request,
-    response: Response,
-    db: Session = Depends(get_db)
-):
-    """Dedicated Administrator Login: zero camera check, direct access to /admin."""
-    email_clean = payload.email.strip().lower()
-    if email_clean in ["admin", "admin@jadavpur.edu"]:
-        user = db.query(User).filter(func.lower(User.email) == "admin@jadavpur.edu").first()
-    else:
-        user = db.query(User).filter(func.lower(User.email) == email_clean).first()
-
-    is_valid_pw = False
-    if user and user.role == "admin":
-        if verify_password(payload.password, user.password_hash):
-            is_valid_pw = True
-        elif payload.password in ["shaan123", "AdminPassword123!"]:
-            is_valid_pw = True
-
-    if not user or user.role != "admin" or not is_valid_pw:
-        log_audit(
-            db,
-            action="login_fail",
-            actor_id=user.id if user else None,
-            detail={"email": payload.email, "role": "admin", "reason": "invalid_admin_credentials"}
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"error": "invalid_credentials", "message": "Invalid administrator credentials or access restricted"}
-        )
-
-    user.last_active_at = datetime.utcnow()
-    session_expires = datetime.utcnow() + timedelta(hours=SSO_SESSION_HOURS)
-    sso_sess = SsoSession(
-        user_id=user.id,
-        created_at=datetime.utcnow(),
-        expires_at=session_expires,
-        revoked_at=None,
-        ip=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
-    )
-    db.add(sso_sess)
-    db.commit()
-    db.refresh(sso_sess)
-
-    response.set_cookie(
-        key="sso_session",
-        value=sso_sess.id,
-        httponly=True,
-        samesite="lax",
-        secure=IS_PRODUCTION,
-        max_age=SSO_SESSION_HOURS * 3600,
-        path="/"
-    )
-
-    log_audit(
-        db,
-        action="login_ok",
-        actor_id=user.id,
-        target_id=user.id,
-        detail={"session_id": sso_sess.id, "role": "admin", "via": "admin_portal"}
-    )
-
-    return {
-        "status": "ok",
-        "next": "authenticated",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "name": user.name,
-            "role": "admin"
+def admin_login():
+    """
+    Deprecated: Dedicated admin bypass has been removed.
+    Administrators authenticate through /auth/login with password and mandatory liveness verification.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error": "admin_login_removed",
+            "message": "Direct administrator login without liveness has been removed. Please log in using your credentials on the central sign-in page and complete camera liveness verification."
         }
-    }
+    )
 
 @router.post("/logout")
 def logout(
@@ -287,3 +539,190 @@ def get_me(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail={"error": "unauthorized", "message": "Not authenticated"}
     )
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Password Reset: Accepts email, generates a cryptographically secure 15-minute token,
+    hashes it into the database, and sends a password reset link to the user's email via SMTP.
+    Always returns generic success to prevent email enumeration attacks.
+    """
+    email_clean = payload.email.strip().lower()
+    user = db.query(User).filter(func.lower(User.email) == email_clean).first()
+
+    if user and user.status == "active":
+        # 1. Generate cryptographically secure URL-safe token
+        raw_token = generate_random_token(32)
+        token_h = hash_token(raw_token)
+        expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+        # 2. Invalidate any existing unused reset tokens for this user
+        existing_tokens = db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None)
+        ).all()
+        for tok in existing_tokens:
+            tok.used_at = datetime.utcnow()
+
+        # 3. Save new token
+        reset_token_obj = PasswordResetToken(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            token_hash=token_h,
+            expires_at=expires_at,
+            created_at=datetime.utcnow()
+        )
+        db.add(reset_token_obj)
+        db.commit()
+
+        # 4. Construct reset URL
+        reset_link = f"{FRONTEND_ORIGIN}/reset-password?token={raw_token}"
+
+        # 5. Dispatch email via SMTP
+        send_password_reset_email(
+            to_email=user.email,
+            name=user.name,
+            reset_token=raw_token,
+            reset_link=reset_link,
+            background=True
+        )
+
+        log_audit(
+            db,
+            action="password_reset_requested",
+            actor_id=user.id,
+            target_id=user.id,
+            detail={"email": user.email}
+        )
+
+    return {
+        "status": "ok",
+        "message": "If an account is associated with this email, a password reset link has been dispatched to your inbox."
+    }
+
+@router.post("/verify-reset-token")
+def verify_reset_token(payload: VerifyResetTokenRequest, db: Session = Depends(get_db)):
+    """
+    Validates a password reset token before displaying the reset password form.
+    Returns masked email and user name on success.
+    """
+    cleaned_token = payload.token.strip()
+    if not cleaned_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "missing_token", "message": "Verification token is required."}
+        )
+
+    token_h = hash_token(cleaned_token)
+    reset_tok = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_h).first()
+
+    if not reset_tok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_token", "message": "The password reset link is invalid or has already been used."}
+        )
+
+    if reset_tok.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "token_already_used", "message": "This password reset link has already been used."}
+        )
+
+    if reset_tok.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "token_expired", "message": "This password reset link has expired (15-minute validity window)."}
+        )
+
+    user = db.query(User).filter(User.id == reset_tok.user_id).first()
+    if not user or user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_user", "message": "The user account is inactive or suspended."}
+        )
+
+    # Return masked email for user confirmation
+    email_parts = user.email.split("@")
+    if len(email_parts) == 2:
+        uname, domain = email_parts
+        masked_user = uname[0] + "***" if len(uname) > 1 else uname + "***"
+        masked_email = f"{masked_user}@{domain}"
+    else:
+        masked_email = user.email
+
+    return {
+        "status": "ok",
+        "valid": True,
+        "masked_email": masked_email,
+        "name": user.name
+    }
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Submits a new password with the verified reset token.
+    Updates the password hash, marks token as used, and invalidates all active sessions.
+    """
+    if len(payload.password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "weak_password", "message": "Password must be at least 8 characters long."}
+        )
+
+    cleaned_token = payload.token.strip()
+    token_h = hash_token(cleaned_token)
+    reset_tok = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_h).first()
+
+    if not reset_tok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_token", "message": "The password reset token is invalid."}
+        )
+
+    if reset_tok.used_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "token_already_used", "message": "This password reset token has already been used."}
+        )
+
+    if reset_tok.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "token_expired", "message": "This password reset token has expired. Please request a new one."}
+        )
+
+    user = db.query(User).filter(User.id == reset_tok.user_id).first()
+    if not user or user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_user", "message": "User account is inactive or not found."}
+        )
+
+    # 1. Update user password
+    user.password_hash = hash_password(payload.password)
+
+    # 2. Invalidate reset token
+    reset_tok.used_at = datetime.utcnow()
+
+    # 3. Invalidate all active SSO sessions for this user for immediate revocation
+    active_sessions = db.query(SsoSession).filter(
+        SsoSession.user_id == user.id,
+        SsoSession.revoked_at.is_(None)
+    ).all()
+    for s in active_sessions:
+        s.revoked_at = datetime.utcnow()
+
+    db.commit()
+
+    log_audit(
+        db,
+        action="password_reset_completed",
+        actor_id=user.id,
+        target_id=user.id,
+        detail={"email": user.email}
+    )
+
+    return {
+        "status": "ok",
+        "message": "Password has been successfully updated. You may now sign in with your new password."
+    }

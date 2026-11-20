@@ -1,7 +1,10 @@
+import os
 import uuid
+import base64
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -113,6 +116,7 @@ def list_users(
             "id": u.id,
             "email": u.email,
             "name": u.name,
+            "phone": u.phone,
             "role": u.role,
             "status": u.status,
             "term_end": str(u.term_end) if u.term_end else None,
@@ -390,3 +394,181 @@ def trigger_cleanup(
     """Run the cleanup job on demand (e.g. for demo)."""
     result = run_cleanup_job(db)
     return result
+
+# ==============================================================================
+# e-KYC & Membership Application Approval Desk
+# ==============================================================================
+
+@router.get("/applications")
+def list_pending_applications(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    List all membership applications currently in 'pending_approval' status.
+    Allows administrators to review captured face portraits and supporting documents.
+    """
+    pending_users = db.query(User).filter(
+        User.status == "pending_approval"
+    ).order_by(User.created_at.desc()).all()
+
+    results = []
+    for u in pending_users:
+        doc_filename = None
+        doc_data_url = None
+        if u.document_path and os.path.exists(u.document_path):
+            doc_filename = os.path.basename(u.document_path)
+            # Remove UUID prefix for clean user-facing display
+            if "_" in doc_filename:
+                doc_filename = doc_filename.split("_", 1)[1]
+            try:
+                ext = os.path.splitext(u.document_path)[1].lower()
+                mime = "application/pdf" if ext == ".pdf" else "image/jpeg"
+                if ext == ".png":
+                    mime = "image/png"
+                with open(u.document_path, "rb") as f:
+                    doc_data_url = f"data:{mime};base64,{base64.b64encode(f.read()).decode('utf-8')}"
+            except Exception:
+                pass
+
+        face_data_url = None
+        if u.face_photo_path and os.path.exists(u.face_photo_path):
+            try:
+                with open(u.face_photo_path, "rb") as f:
+                    face_data_url = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
+            except Exception:
+                pass
+
+        results.append({
+            "id": u.id,
+            "name": u.name,
+            "email": u.email,
+            "phone": u.phone,
+            "role": u.role,
+            "term_end": u.term_end.isoformat() if u.term_end else None,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "has_face_photo": bool(u.face_photo_path and os.path.exists(u.face_photo_path)),
+            "face_data_url": face_data_url,
+            "has_document": bool(u.document_path and os.path.exists(u.document_path)),
+            "document_data_url": doc_data_url,
+            "document_name": doc_filename,
+            "face_url": f"/admin/files/face/{u.id}",
+            "document_url": f"/admin/files/document/{u.id}"
+        })
+
+    return results
+
+@router.post("/applications/{user_id}/approve")
+def approve_application(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    Approve an e-KYC membership application.
+    Transitions account to 'active' status and activates biometric face identity verification.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "user_not_found", "message": "Applicant record not found"}
+        )
+
+    if user.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "not_pending", "message": f"User is not pending approval (status: {user.status})"}
+        )
+
+    now = datetime.utcnow()
+    user.status = "active"
+    user.approved_at = now
+    user.approved_by = admin.id
+    user.last_active_at = now
+    db.commit()
+
+    log_audit(
+        db,
+        action="application_approved",
+        actor_id=admin.id,
+        target_id=user.id,
+        detail={"applicant_email": user.email, "applicant_name": user.name}
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Application for {user.name} ({user.email}) has been approved. The member can now log in.",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "status": user.status
+        }
+    }
+
+@router.post("/applications/{user_id}/reject")
+def reject_application(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    Reject an e-KYC membership application.
+    Transitions account to 'disabled' with reason 'application_rejected'.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "user_not_found", "message": "Applicant record not found"}
+        )
+
+    now = datetime.utcnow()
+    user.status = "disabled"
+    user.disabled_reason = "application_rejected"
+    user.disabled_at = now
+    db.commit()
+
+    log_audit(
+        db,
+        action="application_rejected",
+        actor_id=admin.id,
+        target_id=user.id,
+        detail={"applicant_email": user.email, "applicant_name": user.name}
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Application for {user.name} ({user.email}) has been rejected."
+    }
+
+@router.get("/files/face/{user_id}")
+def get_applicant_face_photo(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """Serve applicant captured face portrait for admin preview."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.face_photo_path or not os.path.exists(user.face_photo_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Face portrait not found")
+    return FileResponse(user.face_photo_path, media_type="image/jpeg")
+
+@router.get("/files/document/{user_id}")
+def get_applicant_document(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """Serve applicant supporting document for admin preview."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not user.document_path or not os.path.exists(user.document_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
+    
+    # Infer content type
+    ext = os.path.splitext(user.document_path)[1].lower()
+    media_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
+    if ext == ".png":
+        media_type = "image/png"
+
+    return FileResponse(user.document_path, media_type=media_type)

@@ -17,7 +17,13 @@ VALID_AUDIT_ACTIONS = {
     "user_enabled",
     "delete_requested",
     "delete_approved",
-    "product_registered"
+    "product_registered",
+    "application_submitted",
+    "application_approved",
+    "application_rejected",
+    "face_match_fail",
+    "password_reset_requested",
+    "password_reset_completed"
 }
 
 def log_audit(
