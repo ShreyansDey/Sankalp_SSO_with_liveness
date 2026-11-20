@@ -24,6 +24,7 @@ from app.services.email_service import (
     send_renewal_status_email,
     send_final_purge_takeout_email
 )
+from app.services.face_engine import extract_face_embedding
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -508,6 +509,35 @@ def approve_application(
         )
 
     now = datetime.utcnow()
+
+    # Option 3 (DPDP Act): Ensure 128-D vector is extracted, then immediately destroy physical files from disk
+    if not user.face_embedding and user.face_photo_path and os.path.exists(user.face_photo_path):
+        try:
+            emb = extract_face_embedding(user.face_photo_path)
+            if emb:
+                user.face_embedding = emb
+        except Exception:
+            pass
+
+    purged_files = []
+    # 1. Permanently delete student ID supporting document from disk
+    if user.document_path and os.path.exists(user.document_path):
+        try:
+            os.remove(user.document_path)
+            purged_files.append("document")
+        except Exception:
+            pass
+        user.document_path = None
+
+    # 2. Permanently delete captured face photo from disk (embedding is retained)
+    if user.face_photo_path and os.path.exists(user.face_photo_path):
+        try:
+            os.remove(user.face_photo_path)
+            purged_files.append("face_photo")
+        except Exception:
+            pass
+        user.face_photo_path = None
+
     user.status = "active"
     user.approved_at = now
     user.approved_by = admin.id
@@ -519,7 +549,12 @@ def approve_application(
         action="application_approved",
         actor_id=admin.id,
         target_id=user.id,
-        detail={"applicant_email": user.email, "applicant_name": user.name}
+        detail={
+            "applicant_email": user.email,
+            "applicant_name": user.name,
+            "purged_files": purged_files,
+            "privacy_compliance": "DPDP_2023_immediate_erasure"
+        }
     )
 
     return {
@@ -528,7 +563,8 @@ def approve_application(
         "user": {
             "id": user.id,
             "email": user.email,
-            "status": user.status
+            "status": user.status,
+            "purged_files": purged_files
         }
     }
 
@@ -540,7 +576,7 @@ def reject_application(
 ):
     """
     Reject an e-KYC membership application.
-    Transitions account to 'disabled' with reason 'application_rejected'.
+    Transitions account to 'disabled' and immediately purges all submitted identity documents.
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -548,6 +584,21 @@ def reject_application(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "user_not_found", "message": "Applicant record not found"}
         )
+
+    # Immediately purge supporting document and photo from disk
+    if user.document_path and os.path.exists(user.document_path):
+        try:
+            os.remove(user.document_path)
+        except Exception:
+            pass
+        user.document_path = None
+
+    if user.face_photo_path and os.path.exists(user.face_photo_path):
+        try:
+            os.remove(user.face_photo_path)
+        except Exception:
+            pass
+        user.face_photo_path = None
 
     now = datetime.utcnow()
     user.status = "disabled"
@@ -560,12 +611,12 @@ def reject_application(
         action="application_rejected",
         actor_id=admin.id,
         target_id=user.id,
-        detail={"applicant_email": user.email, "applicant_name": user.name}
+        detail={"applicant_email": user.email, "applicant_name": user.name, "privacy_compliance": "purged_on_rejection"}
     )
 
     return {
         "status": "ok",
-        "message": f"Application for {user.name} ({user.email}) has been rejected."
+        "message": f"Application for {user.name} ({user.email}) has been rejected and documents purged."
     }
 
 @router.get("/files/face/{user_id}")

@@ -36,6 +36,11 @@ ENV/
 *.db
 *.sqlite3
 
+# Uploaded User Documents & Photos (NEVER COMMIT PII)
+uploads/
+backend/uploads/
+!backend/uploads/**/.gitkeep
+
 # Node / Frontend
 node_modules/
 npm-debug.log*

@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -17,6 +18,9 @@ from app.config import SSO_SESSION_HOURS, IS_PRODUCTION
 from app.deps import get_current_session
 
 router = APIRouter(prefix="/liveness", tags=["liveness"])
+
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+FACES_DIR = UPLOAD_DIR / "faces"
 
 from app.services.face_engine import (
     verify_live_face_against_stored,
@@ -196,6 +200,18 @@ def submit_result(
     # Check biometric face match if user has an enrolled face embedding
     face_matched = False
     match_score = None
+
+    # Step A: If user has no embedding yet, auto-extract from saved registration snapshot
+    if not user.face_embedding and is_face_engine_ready():
+        photo_path = FACES_DIR / f"{user.id}.jpg"
+        if photo_path.exists():
+            saved_emb = extract_face_embedding(str(photo_path))
+            if saved_emb:
+                user.face_embedding = saved_emb
+                db.commit()
+                db.refresh(user)
+
+    # Step B: Strict 1:1 Face Match against enrolled face profile
     if user.face_embedding:
         if not payload.live_frame:
             challenge.result = "fail"
@@ -236,8 +252,9 @@ def submit_result(
             face_matched = True
         else:
             face_matched = True
+
+    # Step C: First login for accounts without prior photo: enroll live face now
     elif payload.live_frame and is_face_engine_ready():
-        # User has no enrolled embedding yet, but verify live_frame actually contains a real human face if engine is ready
         emb = extract_face_embedding(payload.live_frame)
         if emb is None:
             challenge.result = "fail"
@@ -255,6 +272,11 @@ def submit_result(
                 "error": "face_not_detected",
                 "message": "No clear human face detected in the live camera frame."
             }
+        # Enrol this face so all subsequent logins are locked to this person
+        user.face_embedding = emb
+        db.commit()
+        db.refresh(user)
+        face_matched = True
 
     challenge.result = "pass"
     user.liveness_passed_at = datetime.utcnow()
