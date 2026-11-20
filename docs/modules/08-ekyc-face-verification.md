@@ -234,6 +234,10 @@ def verify_live_face_against_stored(
 
 ### 6.1. Automated Verification Suite
 ```powershell
+# Run the automated pytest suite including mathematical cosine threshold tests
+pytest backend/tests/test_ekyc_and_biometrics.py -v
+
+# Run the standalone end-to-end e-KYC and biometric verification script
 python backend/test_full_system.py
 ```
 
