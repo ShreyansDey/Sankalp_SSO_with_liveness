@@ -37,6 +37,7 @@ class SignupRequest(BaseModel):
     invite_token: Optional[str] = None
     email: Optional[str] = None
     name: str = Field(..., min_length=1)
+    phone: Optional[str] = None
     password: str = Field(..., min_length=8)
     consent_given: Optional[bool] = True
 
@@ -390,6 +391,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         id=user_id,
         email=email_to_use,
         name=payload.name.strip(),
+        phone=payload.phone.strip() if payload.phone else None,
         password_hash=hash_password(payload.password),
         role=role_to_use,
         status="active",

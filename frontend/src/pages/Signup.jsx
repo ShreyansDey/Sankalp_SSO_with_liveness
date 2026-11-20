@@ -21,6 +21,33 @@ import { apiRequest } from "../api";
  * ==============================================================================
  */
 
+const COUNTRIES = [
+  { code: "IN", name: "India", dialCode: "+91", digits: 10, placeholder: "98765 43210" },
+  { code: "US", name: "United States", dialCode: "+1", digits: 10, placeholder: "202 555 0123" },
+  { code: "GB", name: "United Kingdom", dialCode: "+44", digits: 10, placeholder: "7911 123456" },
+  { code: "CA", name: "Canada", dialCode: "+1", digits: 10, placeholder: "416 555 0199" },
+  { code: "AU", name: "Australia", dialCode: "+61", digits: 9, placeholder: "412 345 678" },
+  { code: "DE", name: "Germany", dialCode: "+49", digits: 10, placeholder: "151 2345678" },
+  { code: "FR", name: "France", dialCode: "+33", digits: 9, placeholder: "612 345 678" },
+  { code: "AE", name: "United Arab Emirates", dialCode: "+971", digits: 9, placeholder: "50 123 4567" },
+  { code: "SG", name: "Singapore", dialCode: "+65", digits: 8, placeholder: "8123 4567" },
+  { code: "JP", name: "Japan", dialCode: "+81", digits: 10, placeholder: "90 1234 5678" },
+  { code: "BD", name: "Bangladesh", dialCode: "+880", digits: 10, placeholder: "1712 345678" },
+  { code: "NP", name: "Nepal", dialCode: "+977", digits: 10, placeholder: "984 1234567" },
+  { code: "LK", name: "Sri Lanka", dialCode: "+94", digits: 9, placeholder: "71 234 5678" },
+  { code: "PK", name: "Pakistan", dialCode: "+92", digits: 10, placeholder: "301 2345678" },
+  { code: "SA", name: "Saudi Arabia", dialCode: "+966", digits: 9, placeholder: "50 123 4567" },
+  { code: "MY", name: "Malaysia", dialCode: "+60", digits: 10, placeholder: "12 345 6789" },
+  { code: "NZ", name: "New Zealand", dialCode: "+64", digits: 9, placeholder: "21 123 4567" },
+  { code: "ZA", name: "South Africa", dialCode: "+27", digits: 9, placeholder: "82 123 4567" },
+  { code: "BR", name: "Brazil", dialCode: "+55", digits: 11, placeholder: "11 91234 5678" },
+  { code: "NG", name: "Nigeria", dialCode: "+234", digits: 10, placeholder: "802 123 4567" },
+  { code: "ID", name: "Indonesia", dialCode: "+62", digits: 10, placeholder: "812 3456 7890" },
+  { code: "RU", name: "Russia", dialCode: "+7", digits: 10, placeholder: "912 345 6789" },
+  { code: "IT", name: "Italy", dialCode: "+39", digits: 10, placeholder: "312 345 6789" },
+  { code: "ES", name: "Spain", dialCode: "+34", digits: 9, placeholder: "612 345 678" }
+];
+
 export default function Signup() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -37,9 +64,30 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [inviteToken, setInviteToken] = useState(tokenParam);
   const [name, setName] = useState("");
+  const [selectedCountryCode, setSelectedCountryCode] = useState("IN");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  const selectedCountry = COUNTRIES.find((c) => c.code === selectedCountryCode) || COUNTRIES[0];
+
+  const handleCountryChange = (e) => {
+    const newCode = e.target.value;
+    setSelectedCountryCode(newCode);
+    const country = COUNTRIES.find((c) => c.code === newCode) || COUNTRIES[0];
+    if (phoneNumber.length > country.digits) {
+      setPhoneNumber(phoneNumber.slice(0, country.digits));
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    // Strictly numeric digits: strip out text and letters
+    const digitsOnly = e.target.value.replace(/\D/g, "");
+    if (digitsOnly.length <= selectedCountry.digits) {
+      setPhoneNumber(digitsOnly);
+    }
+  };
 
   // Consent State
   const [consentChecked, setConsentChecked] = useState(false);
@@ -74,6 +122,18 @@ export default function Signup() {
       setError("Full Name cannot contain numbers. Please enter letters only.");
       return;
     }
+    if (!phoneNumber.trim()) {
+      setError(`Phone Number is compulsory. Please enter your ${selectedCountry.digits}-digit phone number.`);
+      return;
+    }
+    if (!/^\d+$/.test(phoneNumber)) {
+      setError("Phone Number can only contain numeric digits.");
+      return;
+    }
+    if (phoneNumber.length !== selectedCountry.digits) {
+      setError(`Phone number for ${selectedCountry.name} must be exactly ${selectedCountry.digits} digits (you entered ${phoneNumber.length} digits).`);
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters long.");
       return;
@@ -100,6 +160,7 @@ export default function Signup() {
     try {
       const payload = {
         name: name.trim(),
+        phone: `${selectedCountry.dialCode} ${phoneNumber.trim()}`,
         password: password,
         consent_given: true
       };
@@ -386,7 +447,9 @@ export default function Signup() {
 
                 {/* Full Name */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  <label htmlFor="name" style={{ fontSize: "13px", fontWeight: "600" }}>Full Name</label>
+                  <label htmlFor="name" style={{ fontSize: "13px", fontWeight: "600" }}>
+                    Full Name <span style={{ color: "#DC2626" }}>*</span>
+                  </label>
                   <input
                     id="name"
                     type="text"
@@ -397,7 +460,104 @@ export default function Signup() {
                     className="input-editorial"
                     style={{ height: "42px", fontSize: "14px" }}
                   />
-                  <div style={{ fontSize: "11px", color: "#5A6270" }}>Letters only (no numbers)</div>
+                  <div style={{ fontSize: "11px", color: "#5A6270" }}>Letters only (no numbers allowed)</div>
+                </div>
+
+                {/* Phone Number with Country Code Dropdown */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="signup-phone" style={{ fontSize: "13px", fontWeight: "600" }}>
+                    Phone Number <span style={{ color: "#DC2626" }}>*</span>
+                  </label>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "stretch",
+                    width: "100%",
+                    borderRadius: "7px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    overflow: "hidden",
+                    boxSizing: "border-box"
+                  }}>
+                    {/* Country Selector Dropdown with Down Arrow */}
+                    <div style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      background: "#EBE5D8",
+                      borderRight: "1px solid #C4BCAF",
+                      flexShrink: 0
+                    }}>
+                      <select
+                        value={selectedCountryCode}
+                        onChange={handleCountryChange}
+                        aria-label="Select country dial code"
+                        style={{
+                          appearance: "none",
+                          WebkitAppearance: "none",
+                          MozAppearance: "none",
+                          border: "none",
+                          background: "transparent",
+                          padding: "0 22px 0 10px",
+                          height: "42px",
+                          fontSize: "12.5px",
+                          fontWeight: 600,
+                          color: "#12171E",
+                          cursor: "pointer",
+                          outline: "none"
+                        }}
+                      >
+                        {COUNTRIES.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.dialCode} ({c.name})
+                          </option>
+                        ))}
+                      </select>
+                      {/* Visual down arrow indicator */}
+                      <span style={{
+                        position: "absolute",
+                        right: "6px",
+                        pointerEvents: "none",
+                        fontSize: "9px",
+                        color: "#5A6270"
+                      }}>
+                        &#9660;
+                      </span>
+                    </div>
+
+                    {/* Digits-only telephone input with exact country length */}
+                    <input
+                      id="signup-phone"
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      required
+                      placeholder={selectedCountry.placeholder}
+                      value={phoneNumber}
+                      onChange={handlePhoneChange}
+                      maxLength={selectedCountry.digits}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: "42px",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        padding: "0 12px",
+                        fontSize: "14px",
+                        color: "#12171E"
+                      }}
+                    />
+                  </div>
+                  {/* Character/digit counter & helper */}
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "11px",
+                    color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270"
+                  }}>
+                    <span>Numbers only ({selectedCountry.name})</span>
+                    <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
+                  </div>
                 </div>
 
                 {/* Password */}
@@ -486,6 +646,11 @@ export default function Signup() {
                 <div className="summary-box-left">
                   <span style={{ color: "#5A6270" }}>Applicant: </span>
                   <strong style={{ color: "#12171E" }}>{name}</strong>
+                  {phoneNumber && (
+                    <span style={{ color: "#5A6270", fontSize: "12px", marginLeft: "6px" }}>
+                      &bull; {selectedCountry.dialCode} {phoneNumber}
+                    </span>
+                  )}
                 </div>
                 <div className="summary-box-right">
                   {mode === "direct" ? (
