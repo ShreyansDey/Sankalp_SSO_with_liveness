@@ -3,6 +3,7 @@ import smtplib
 import ssl
 import logging
 import threading
+import email.utils
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -40,10 +41,15 @@ def send_email(
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    from_name = EMAIL_FROM_NAME or "Real Access (Sankalp SSO)"
+    from_name = (EMAIL_FROM_NAME or "Team Sankalp").strip('"\'').replace("_", " ")
     from_addr = EMAIL_FROM or SMTP_USER
     msg["From"] = f"{from_name} <{from_addr}>"
     msg["To"] = to_email
+    msg["Reply-To"] = from_addr
+    msg["Date"] = email.utils.formatdate(localtime=True)
+    msg["Message-ID"] = email.utils.make_msgid(domain=from_addr.split("@")[-1] if "@" in from_addr else "gmail.com")
+    msg["Auto-Submitted"] = "auto-generated"
+    msg["X-Auto-Response-Suppress"] = "All"
 
     # Attach plain text and HTML versions
     part_text = MIMEText(text_content, "plain", "utf-8")
@@ -451,7 +457,7 @@ def send_mark_as_left_email(
     background: bool = True
 ) -> bool:
     """Dispatches 48-hour recovery notice when admin marks user as left."""
-    subject = "⚠️ Notice: Access Revoked by Administrator — 48-Hour Purge Window"
+    subject = "Sankalp SSO: Notice of Account Deactivation & 48-Hour Recovery Window"
     text_content, html_content = build_mark_as_left_email(name, renew_url)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -469,7 +475,7 @@ def send_expired_email(
     background: bool = True
 ) -> bool:
     """Dispatches 48-hour recovery notice when user access expires automatically."""
-    subject = "⚠️ Notice: Activity Limit / Membership Expired — 48-Hour Purge Window"
+    subject = "Sankalp SSO: Notice of Membership Expiration & 48-Hour Recovery Window"
     text_content, html_content = build_expired_email(name, renew_url, reason)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -487,7 +493,7 @@ def send_renewal_status_email(
     background: bool = True
 ) -> bool:
     """Dispatches approval or decline notice for a renewal request."""
-    subject = "✅ Your Access Renewal Request has been Approved!" if status.lower() == "approved" else "❌ Update: Your Access Renewal Request was Declined"
+    subject = "Sankalp SSO: Access Renewal Request Approved" if status.lower() == "approved" else "Sankalp SSO: Access Renewal Request Status Update"
     text_content, html_content = build_renewal_status_email(name, status, admin_notes)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -608,7 +614,7 @@ def send_final_purge_takeout_email(
     background: bool = True
 ) -> bool:
     """Dispatches final data export & permanent database purge notification email."""
-    subject = "📦 Your Personal Data Export & Notice of Permanent Database Purge"
+    subject = "Sankalp SSO: Personal Data Export & Notice of Permanent Database Purge"
     text_content, html_content = build_final_purge_takeout_email(user_data)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
