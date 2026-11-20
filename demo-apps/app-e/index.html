@@ -68,8 +68,8 @@ Technical Architecture:
 <script>
   const CLIENT_ID = "app-e";
   const CLIENT_SECRET = "secret-app-e-key-2026";
-  const AUTH_SERVER = "http://localhost:8001";
-  const REDIRECT_URI = "http://localhost:5178/callback";
+  const AUTH_SERVER = window.location.protocol + "//" + window.location.hostname + ":8001";
+  const REDIRECT_URI = window.location.origin + "/callback";
 
   function initiateLogin() {
     const state = "state_sports_" + Math.random().toString(36).substring(7);

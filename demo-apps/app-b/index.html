@@ -72,8 +72,8 @@ Technical Architecture:
 <script>
   const CLIENT_ID = "app-b";
   const CLIENT_SECRET = "secret-app-b-key-2026";
-  const AUTH_SERVER = "http://localhost:8001";
-  const REDIRECT_URI = "http://localhost:5175/callback";
+  const AUTH_SERVER = window.location.protocol + "//" + window.location.hostname + ":8001";
+  const REDIRECT_URI = window.location.origin + "/callback";
 
   function initiateLogin() {
     const state = "state_robotics_" + Math.random().toString(36).substring(7);

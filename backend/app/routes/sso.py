@@ -50,9 +50,18 @@ def authorize(
             detail={"error": "invalid_client", "message": "Unknown client_id"}
         )
 
-    # Security check: redirect_uri must match registered address exactly
-    # Normalize trailing slash comparison if needed, or exact match
-    if product.redirect_uri.rstrip("/") != redirect_uri.rstrip("/"):
+    # Security check: redirect_uri must match registered address exactly (or same port & path)
+    registered_norm = product.redirect_uri.rstrip("/")
+    incoming_norm = redirect_uri.rstrip("/")
+    match = (registered_norm == incoming_norm)
+    if not match:
+        from urllib.parse import urlparse
+        reg_p = urlparse(registered_norm)
+        inc_p = urlparse(incoming_norm)
+        if reg_p.port == inc_p.port and reg_p.path == inc_p.path:
+            match = True
+
+    if not match:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "invalid_redirect_uri", "message": "Redirect URI does not match registered URI"}

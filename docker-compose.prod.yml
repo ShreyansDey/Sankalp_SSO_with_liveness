@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sankalp_prod_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sankalp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-sankalp_production}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sankalp_user} -d ${POSTGRES_DB:-sankalp_production}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sankalp_prod_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sankalp_prod_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      BOOTSTRAP_PROD: ${BOOTSTRAP_PROD:-true}
+      WORKERS: 4
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sankalp_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sankalp_production}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-10}
+      SSO_SESSION_HOURS: ${SSO_SESSION_HOURS:-8}
+      INACTIVITY_DAYS: ${INACTIVITY_DAYS:-60}
+      PURGE_GRACE_HOURS: ${PURGE_GRACE_HOURS:-48}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5180}
+      APP_A_ORIGIN: ${APP_A_ORIGIN:-http://localhost:5174}
+      APP_B_ORIGIN: ${APP_B_ORIGIN:-http://localhost:5175}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@youruniversity.edu}
+      ADMIN_NAME: ${ADMIN_NAME:-System Administrator}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-tls}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Real Access (University SSO)}
+    volumes:
+      - uploads_vault:/app/uploads
+    ports:
+      - "8001:8000"
+    networks:
+      - sankalp_prod_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: sankalp_prod_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "5180:80"
+    networks:
+      - sankalp_prod_net
+
+  demo-apps:
+    build:
+      context: ./demo-apps
+      dockerfile: Dockerfile
+    container_name: sankalp_prod_apps
+    restart: always
+    ports:
+      - "5174:5174"
+      - "5175:5175"
+      - "5176:5176"
+      - "5177:5177"
+      - "5178:5178"
+    networks:
+      - sankalp_prod_net
+
+volumes:
+  postgres_prod_data:
+    name: sankalp_postgres_prod_data
+  uploads_vault:
+    name: sankalp_uploads_vault
+
+networks:
+  sankalp_prod_net:
+    name: sankalp_prod_network
