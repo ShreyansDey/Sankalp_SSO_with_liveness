@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 5180,
     host: true,
+    allowedHosts: true,
     proxy: {
       '/auth': {
         target: 'http://localhost:8001',

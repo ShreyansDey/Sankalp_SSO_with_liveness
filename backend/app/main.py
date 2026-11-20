@@ -85,7 +85,7 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.ngrok-free\.app|.*\.ngrok\.io|.*\.ngrok\.app)(:\d+)?",
     allow_credentials=True,  # Crucial: allows HttpOnly session cookies to be sent across origins
     allow_methods=["*"],
     allow_headers=["*"],
