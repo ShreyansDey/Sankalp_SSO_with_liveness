@@ -98,6 +98,9 @@ PURGE_GRACE_HOURS=48
 FRONTEND_ORIGIN=https://sso.youruniversity.edu
 APP_A_ORIGIN=https://photo.youruniversity.edu
 APP_B_ORIGIN=https://robotics.youruniversity.edu
+APP_C_ORIGIN=https://coding.youruniversity.edu
+APP_D_ORIGIN=https://chess.youruniversity.edu
+APP_E_ORIGIN=https://sports.youruniversity.edu
 
 # ------------------------------------------------------------------------------
 # 5. REAL ADMINISTRATOR CREDENTIALS (Zero Demo Users)

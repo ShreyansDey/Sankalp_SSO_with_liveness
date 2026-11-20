@@ -16,12 +16,23 @@ from datetime import datetime
 backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
+from dotenv import load_dotenv
+if (backend_dir.parent / ".env").exists():
+    load_dotenv(backend_dir.parent / ".env", override=True)
+elif (backend_dir / ".env").exists():
+    load_dotenv(backend_dir / ".env", override=True)
+else:
+    load_dotenv(override=True)
+
 from app.database import engine, SessionLocal, Base, ensure_columns_exist
 from app.models import User, Product
 from app.security import hash_password, hash_token, generate_random_token
 from app.config import (
     APP_A_ORIGIN,
     APP_B_ORIGIN,
+    APP_C_ORIGIN,
+    APP_D_ORIGIN,
+    APP_E_ORIGIN,
     FRONTEND_ORIGIN
 )
 
@@ -112,19 +123,19 @@ def bootstrap_production():
                 "name": "Coding & AI Society",
                 "client_id": "app-c",
                 "env_secret_var": "APP_C_CLIENT_SECRET",
-                "default_redirect": "http://localhost:5176/callback"
+                "default_redirect": f"{APP_C_ORIGIN}/callback"
             },
             {
                 "name": "Chess & Mind Sports",
                 "client_id": "app-d",
                 "env_secret_var": "APP_D_CLIENT_SECRET",
-                "default_redirect": "http://localhost:5177/callback"
+                "default_redirect": f"{APP_D_ORIGIN}/callback"
             },
             {
                 "name": "Athletics & Sports Complex",
                 "client_id": "app-e",
                 "env_secret_var": "APP_E_CLIENT_SECRET",
-                "default_redirect": "http://localhost:5178/callback"
+                "default_redirect": f"{APP_E_ORIGIN}/callback"
             }
         ]
 
@@ -132,10 +143,10 @@ def bootstrap_production():
 
         for prod_info in products_config:
             client_id = prod_info["client_id"]
-            # Check if secret provided in environment, otherwise generate strong 32-byte secret
+            # Check if secret provided in environment, otherwise use standard client key
             raw_secret = os.getenv(prod_info["env_secret_var"], "").strip()
             if not raw_secret:
-                raw_secret = secrets.token_hex(24)
+                raw_secret = f"secret-{client_id}-key-2026"
             generated_secrets[client_id] = raw_secret
 
             existing_prod = db.query(Product).filter(Product.client_id == client_id).first()

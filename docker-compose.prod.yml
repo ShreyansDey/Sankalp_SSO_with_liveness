@@ -41,6 +41,14 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5180}
       APP_A_ORIGIN: ${APP_A_ORIGIN:-http://localhost:5174}
       APP_B_ORIGIN: ${APP_B_ORIGIN:-http://localhost:5175}
+      APP_C_ORIGIN: ${APP_C_ORIGIN:-http://localhost:5176}
+      APP_D_ORIGIN: ${APP_D_ORIGIN:-http://localhost:5177}
+      APP_E_ORIGIN: ${APP_E_ORIGIN:-http://localhost:5178}
+      APP_A_CLIENT_SECRET: ${APP_A_CLIENT_SECRET:-}
+      APP_B_CLIENT_SECRET: ${APP_B_CLIENT_SECRET:-}
+      APP_C_CLIENT_SECRET: ${APP_C_CLIENT_SECRET:-}
+      APP_D_CLIENT_SECRET: ${APP_D_CLIENT_SECRET:-}
+      APP_E_CLIENT_SECRET: ${APP_E_CLIENT_SECRET:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@youruniversity.edu}
       ADMIN_NAME: ${ADMIN_NAME:-System Administrator}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
