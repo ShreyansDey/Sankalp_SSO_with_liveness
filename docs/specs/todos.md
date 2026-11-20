@@ -58,6 +58,11 @@
   - [x] Disable accounts exceeding `term_end` calendar date.
   - [x] Disable accounts inactive for $> 60$ days.
   - [x] Atomic multi-table revocation of active SSO sessions and refresh tokens.
+  - [x] 48-Hour Vault Recovery Window: disabled accounts held in vault for 48 hours only.
+  - [x] Automated 48-Hour Recovery notice emails with hyperlinked `/renew` CTA and red disclaimer.
+  - [x] Self-service renewal appeals portal (`/renew`) and Admin Review Desk with countdown timer.
+  - [x] Hard Purge at 48 hours without approved renewal: permanently erases user record from DB and deletes uploaded documents/biometrics from disk (zero vault retention).
+  - [x] Dispatches complete Personal Data Takeout Export Email with re-registration from scratch notice at exact moment of hard purge.
 - [x] Create on-demand manual janitor trigger `POST /admin/cleanup/run` for judge presentations.
 - [x] Enforce 30-day account deletion guardrail (`POST /admin/users/{id}/delete-approve`).
 - [x] Build append-only `audit_log` with automatic PII/credential sanitization scrubbing (`backend/app/audit.py`).

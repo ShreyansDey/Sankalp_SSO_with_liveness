@@ -19,7 +19,11 @@ from app.audit import log_audit
 from app.config import FRONTEND_ORIGIN, PURGE_GRACE_HOURS
 from app.deps import require_admin_user
 from app.jobs.cleanup import run_cleanup_job
-from app.services.email_service import send_mark_as_left_email, send_renewal_status_email
+from app.services.email_service import (
+    send_mark_as_left_email,
+    send_renewal_status_email,
+    send_final_purge_takeout_email
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -325,6 +329,20 @@ def delete_approve(
 
     user.status = "deleted"
     db.commit()
+
+    # Prepare personal data export takeout prior to deletion and dispatch notice
+    user_data = {
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "created_at": user.created_at,
+        "disabled_at": user.disabled_at,
+        "disabled_reason": user.disabled_reason or "admin_deleted",
+    }
+    try:
+        send_final_purge_takeout_email(user.email, user_data, background=True)
+    except Exception:
+        pass
 
     log_audit(
         db,

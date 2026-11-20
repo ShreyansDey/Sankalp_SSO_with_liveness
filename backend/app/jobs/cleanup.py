@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import User, SsoSession, RefreshToken, RenewalRequest
 from app.audit import log_audit
 from app.config import INACTIVITY_DAYS, PURGE_GRACE_HOURS, FRONTEND_ORIGIN
-from app.services.email_service import send_expired_email
+from app.services.email_service import send_expired_email, send_final_purge_takeout_email
 
 def run_cleanup_job(db: Session) -> Dict[str, Any]:
     """
@@ -142,6 +142,22 @@ def run_cleanup_job(db: Session) -> Dict[str, Any]:
         user_name = u.name
         user_id = u.id
         reason = u.disabled_reason or "disabled"
+
+        # Prepare personal data export takeout prior to hard purge
+        user_data = {
+            "name": user_name,
+            "email": user_email,
+            "phone": u.phone,
+            "created_at": u.created_at,
+            "disabled_at": u.disabled_at,
+            "disabled_reason": reason,
+        }
+
+        # Send final data takeout email with complete record summary and re-registration notice
+        try:
+            send_final_purge_takeout_email(user_email, user_data, background=False)
+        except Exception:
+            pass
 
         # Remove physical document/face upload files from disk
         if u.face_photo_path and os.path.exists(u.face_photo_path):

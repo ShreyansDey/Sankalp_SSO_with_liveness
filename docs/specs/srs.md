@@ -144,13 +144,19 @@ stateDiagram-v2
 
 ---
 
-### FR3: 48-Hour Permanent Database Purge & Renewal Workflow
-- To protect against accidental admin revocations or unexpected term expiries, the system implements a **48-Hour Recovery Window**:
-  1. Members whose status is set to `disabled` (via "Mark as Left", term expiration, or 60-day inactivity) have **48 hours** to submit a renewal application (`POST /auth/renew`).
-  2. The Admin Dashboard features a dedicated **Renewals Desk** displaying pending recovery appeals with a real-time countdown timer.
-  3. If an administrator approves the renewal (`POST /admin/renewals/{id}/approve`), the account is instantly restored to `active` status, canceling the purge countdown, and an approval email is dispatched.
-  4. If an administrator declines the renewal (`POST /admin/renewals/{id}/decline`), a decline email is sent to the user.
-  5. If **48 hours elapse** without an approved renewal, the background cleanup janitor automatically and permanently **purges all user credential records and stored biometric/document files from the entire database** (`user_purged_permanently`). Re-entering the organization requires registering again from scratch.
+### FR3: 48-Hour Permanent Database Purge, Data Takeout & Renewal Workflow
+- To protect against accidental admin revocations or unexpected term expiries, the system implements a **48-Hour Vault Recovery Window**:
+  1. Members whose status is set to `disabled` (via "Mark as Left", term expiration, or 60-day inactivity) remain frozen in the vault for **exactly 48 hours**. During this period, all sessions and tokens remain revoked, but the record is held to allow recovery.
+  2. The departing member receives an immediate notice with a hyperlinked button to `/renew?email=...` and prominent red text instructing them to ignore the email if intentional or already applied.
+  3. The Admin Dashboard features a dedicated **Renewals Desk** displaying pending recovery appeals with real-time countdown badges (`hours_left`).
+  4. If an administrator approves the renewal (`POST /admin/renewals/{id}/approve`), the account is instantly restored to `active` status, canceling the purge countdown, and an approval email is dispatched.
+  5. If an administrator declines the renewal (`POST /admin/renewals/{id}/decline`), a decline email is sent to the user.
+  6. **Hard Purge Execution (Zero Vault Retention)**:
+     - If **48 hours elapse** without an approved renewal, the background cleanup janitor automatically and permanently **purges all user credential records, session tokens, biometric embeddings, and uploaded student ID files from the entire database** (`user_purged_permanently`). No frozen records remain in the system vault.
+  7. **Automated Personal Data Takeout & Farewell Email**:
+     - At the exact moment of hard purge, the system dispatches a **Final Personal Data Export (Takeout) Email** to the user.
+     - The email contains a formatted table of all recorded user data prior to erasure (Full Name, Registered Email, Contact Phone, Account Creation Date, Deactivation Timestamp, Deactivation Reason, Biometric embedding disposal certification, and Document erasure confirmation).
+     - The email explicitly instructs the user that because their account and credential data have been completely deleted from the database, re-entering or accessing campus club facilities in the future requires submitting a new registration with complete data and undergoing e-KYC verification from scratch.
 
 ---
 

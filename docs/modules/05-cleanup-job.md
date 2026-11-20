@@ -34,7 +34,7 @@ This module implements the following core specifications from `docs/specs/srs.md
 
 ## 🔄 3. How it works (Architectural Workflows & Visual Pipelines)
 
-### 3.1. Dual-Policy Background Janitor Pipeline
+### 3.1. Triple-Policy Janitor Pipeline with 48-Hour Recovery & Hard Purge
 
 ```mermaid
 flowchart TD
@@ -43,20 +43,29 @@ flowchart TD
     subgraph Policy1 ["Policy 1: Term End Date Check"]
         Start --> QueryTerm["SQL Query: Find Users where<br/>status == 'active' AND term_end < TODAY()"]
         QueryTerm --> ForEachTerm{"Any Expired Students Found?"}
-        ForEachTerm -->|Yes| DisableTerm["1. Set user.status = 'disabled'<br/>2. Set user.disabled_reason = 'term_end'<br/>3. Revoke all SsoSession & RefreshToken rows<br/>4. Write 'user_disabled_auto' to audit_log"]
+        ForEachTerm -->|Yes| DisableTerm["1. Set user.status = 'disabled'<br/>2. Set user.disabled_reason = 'term_end'<br/>3. Revoke all SsoSession & RefreshToken rows<br/>4. Write 'user_disabled_auto' to audit_log<br/>5. Send 48h Recovery Email with /renew link"]
         ForEachTerm -->|No| NextPolicy["Proceed to Inactivity Policy"]
         DisableTerm --> NextPolicy
     end
 
     subgraph Policy2 ["Policy 2: 60-Day Inactivity Check"]
         NextPolicy --> QueryInactive["SQL Query: Find Users where<br/>status == 'active' AND last_active_at < (NOW - 60 Days)"]
-        QueryInactive --> ForEachInactive{"Any Inactive Accounts Found?"}
-        ForEachInactive -->|Yes| DisableInactive["1. Set user.status = 'disabled'<br/>2. Set user.disabled_reason = 'inactive'<br/>3. Revoke all SsoSession & RefreshToken rows<br/>4. Write 'user_disabled_auto' to audit_log"]
-        ForEachInactive -->|No| CommitCleanup["Commit Database Transaction"]
-        DisableInactive --> CommitCleanup
+        ForEachInactive{"Any Inactive Accounts Found?"}
+        QueryInactive --> ForEachInactive
+        ForEachInactive -->|Yes| DisableInactive["1. Set user.status = 'disabled'<br/>2. Set user.disabled_reason = 'inactive'<br/>3. Revoke all SsoSession & RefreshToken rows<br/>4. Write 'user_disabled_auto' to audit_log<br/>5. Send 48h Recovery Email with /renew link"]
+        ForEachInactive -->|No| Policy3["Proceed to 48-Hour Hard Purge"]
+        DisableInactive --> Policy3
     end
 
-    CommitCleanup --> Done["Return Summary Report JSON:<br/>{ total_disabled: N, disabled_users: [...] }"]
+    subgraph Policy3Section ["Policy 3: 48-Hour Hard Purge & Takeout Export"]
+        Policy3 --> QueryPurge["SQL Query: Find Users where<br/>status == 'disabled' AND disabled_at <= NOW - 48 Hours"]
+        QueryPurge --> ForEachPurge{"Elapsed 48h Without Approved Renewal?"}
+        ForEachPurge -->|Yes| PurgeExec["1. Extract user profile data dictionary<br/>2. Send Data Takeout & Re-registration Email<br/>3. Erase biometric embeddings & document files from disk<br/>4. Write 'user_purged_permanently' to audit_log<br/>5. Hard delete user row from database (zero vault retention)"]
+        ForEachPurge -->|No| CommitCleanup["Commit Database Transaction"]
+        PurgeExec --> CommitCleanup
+    end
+
+    CommitCleanup --> Done["Return Summary Report JSON:<br/>{ total_disabled: N, total_purged: M, purged_users: [...] }"]
 ```
 
 ---
@@ -66,30 +75,38 @@ flowchart TD
 ### 4.1. Core Cleanup Logic (`backend/app/jobs/cleanup.py`)
 
 ```python
+import os
 from datetime import datetime, date, timedelta
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 
-from app.models import User, SsoSession, RefreshToken
+from app.models import User, SsoSession, RefreshToken, RenewalRequest
 from app.audit import log_audit
-from app.config import INACTIVITY_DAYS
+from app.config import INACTIVITY_DAYS, PURGE_GRACE_HOURS, FRONTEND_ORIGIN
+from app.services.email_service import send_expired_email, send_final_purge_takeout_email
 
 def run_cleanup_job(db: Session) -> Dict[str, Any]:
     """
-    M6/FR2: Runs automatic lifecycle cleanup.
-    Disables accounts where:
-    1. term_end is strictly in the past (term_end < today)
-    2. inactive for over INACTIVITY_DAYS (default 60 days)
-    Immediately revokes all active SSO sessions and refresh tokens for disabled users.
-    Logs 'user_disabled_auto' for each disabled user.
+    M6/FR2/FR3: Runs automatic cleanup, 48-hour recovery enforcement, and permanent purge.
+    1. Disables accounts where:
+       a. term_end is in the past (term_end < today)
+       b. inactive for over INACTIVITY_DAYS (default 60 days)
+       Immediately revokes all active SSO sessions and refresh tokens,
+       logs 'user_disabled_auto', and sends 48-hour recovery/renewal email.
+    2. 48-Hour Hard Purge:
+       Target all disabled users whose 48-hour window has expired and have no approved renewal.
+       Dispatches complete personal data takeout export email to user.
+       Permanently purges user row and uploaded identity files from disk.
     """
     now = datetime.utcnow()
     today = date.today()
     inactivity_threshold = now - timedelta(days=INACTIVITY_DAYS)
+    purge_threshold = now - timedelta(hours=PURGE_GRACE_HOURS)
 
     disabled_users = []
+    purged_users = []
 
-    # 1. Term End Policy: Find expired members
+    # 1. Term End Policy
     expired_term_users = db.query(User).filter(
         User.status == "active",
         User.term_end.is_not(None),
@@ -98,6 +115,144 @@ def run_cleanup_job(db: Session) -> Dict[str, Any]:
 
     for user in expired_term_users:
         user.status = "disabled"
+        user.disabled_reason = "term_end"
+        user.disabled_at = now
+
+        db.query(SsoSession).filter(
+            SsoSession.user_id == user.id,
+            SsoSession.revoked_at.is_(None)
+        ).update({"revoked_at": now})
+
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None)
+        ).update({"revoked_at": now})
+
+        log_audit(
+            db,
+            action="user_disabled_auto",
+            actor_id="system_cleanup_job",
+            target_id=user.id,
+            detail={"reason": "term_end", "term_end": str(user.term_end)}
+        )
+
+        renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
+        try:
+            send_expired_email(user.email, user.name, renew_url, reason="term_end")
+        except Exception:
+            pass
+
+        disabled_users.append({"id": user.id, "email": user.email, "reason": "term_end"})
+
+    # 2. Inactivity Policy
+    inactive_users = db.query(User).filter(
+        User.status == "active",
+        User.created_at < inactivity_threshold,
+        (User.last_active_at < inactivity_threshold) | (User.last_active_at.is_(None))
+    ).all()
+
+    for user in inactive_users:
+        user.status = "disabled"
+        user.disabled_reason = "inactive"
+        user.disabled_at = now
+
+        db.query(SsoSession).filter(
+            SsoSession.user_id == user.id,
+            SsoSession.revoked_at.is_(None)
+        ).update({"revoked_at": now})
+
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None)
+        ).update({"revoked_at": now})
+
+        log_audit(
+            db,
+            action="user_disabled_auto",
+            actor_id="system_cleanup_job",
+            target_id=user.id,
+            detail={"reason": "inactive", "days_threshold": INACTIVITY_DAYS}
+        )
+
+        renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
+        try:
+            send_expired_email(user.email, user.name, renew_url, reason="inactive")
+        except Exception:
+            pass
+
+        disabled_users.append({"id": user.id, "email": user.email, "reason": "inactive"})
+
+    db.commit()
+
+    # 3. 48-Hour Hard Purge (Permanent Erasure & Data Takeout Dispatch)
+    eligible_for_purge = db.query(User).filter(
+        User.status == "disabled",
+        User.disabled_at.is_not(None),
+        User.disabled_at <= purge_threshold
+    ).all()
+
+    for u in eligible_for_purge:
+        has_approved = db.query(RenewalRequest).filter(
+            RenewalRequest.user_id == u.id,
+            RenewalRequest.status == "approved"
+        ).first()
+
+        if has_approved:
+            continue
+
+        user_email = u.email
+        user_name = u.name
+        user_id = u.id
+        reason = u.disabled_reason or "disabled"
+
+        user_data = {
+            "name": user_name,
+            "email": user_email,
+            "phone": u.phone,
+            "created_at": u.created_at,
+            "disabled_at": u.disabled_at,
+            "disabled_reason": reason,
+        }
+
+        try:
+            send_final_purge_takeout_email(user_email, user_data, background=False)
+        except Exception:
+            pass
+
+        if u.face_photo_path and os.path.exists(u.face_photo_path):
+            try:
+                os.remove(u.face_photo_path)
+            except Exception:
+                pass
+
+        if u.document_path and os.path.exists(u.document_path):
+            try:
+                os.remove(u.document_path)
+            except Exception:
+                pass
+
+        log_audit(
+            db,
+            action="user_purged_permanently",
+            actor_id="system_cleanup_job",
+            target_id=user_id,
+            detail={"email": user_email, "name": user_name, "reason": reason, "held_hours": PURGE_GRACE_HOURS}
+        )
+
+        db.delete(u)
+        purged_users.append({"id": user_id, "email": user_email, "reason": reason})
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "processed_at": now.isoformat(),
+        "total_disabled": len(disabled_users),
+        "disabled_users": disabled_users,
+        "total_purged": len(purged_users),
+        "purged_users": purged_users
+    }
+```
         user.disabled_reason = "term_end"
         user.disabled_at = now
 

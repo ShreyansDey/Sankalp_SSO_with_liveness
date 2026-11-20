@@ -176,17 +176,28 @@ def test_admin_decline_renewal(client, db_session):
     assert student.status == "disabled"
 
 
-def test_48_hour_hard_purge_execution(db_session):
+def test_48_hour_hard_purge_execution(db_session, monkeypatch):
     """
     Test that users disabled for > 48 hours without approved renewal are permanently purged.
     Users disabled < 48 hours are preserved.
+    Verifies that a full personal data takeout export email is dispatched immediately prior to hard purge.
     """
     now = datetime.utcnow()
+
+    # Track takeout emails dispatched
+    takeout_calls = []
+
+    def mock_takeout_email(to_email, user_data, background=False):
+        takeout_calls.append({"email": to_email, "data": user_data})
+        return True
+
+    monkeypatch.setattr("app.jobs.cleanup.send_final_purge_takeout_email", mock_takeout_email)
 
     # User A: Disabled 50 hours ago (Past 48h window -> MUST BE PURGED)
     old_user = User(
         email="purged_student@example.com",
         name="Old Purged Student",
+        phone="+91 98765 43210",
         password_hash=hash_password("PurgePass123!"),
         role="member",
         status="disabled",
@@ -198,6 +209,7 @@ def test_48_hour_hard_purge_execution(db_session):
     recent_user = User(
         email="safe_student@example.com",
         name="Recent Safe Student",
+        phone="+91 91234 56789",
         password_hash=hash_password("SafePass123!"),
         role="member",
         status="disabled",
@@ -219,14 +231,28 @@ def test_48_hour_hard_purge_execution(db_session):
     purged_ids = [p["id"] for p in cleanup_res["purged_users"]]
     assert old_user_id in purged_ids
 
-    # Verify old_user is completely deleted from the database
+    # Verify old_user is completely deleted from the database (no frozen vault records)
     check_old = db_session.query(User).filter(User.id == old_user_id).first()
     assert check_old is None
 
-    # Verify recent_user is still in the database
+    # Verify recent_user is still in the database (safely held within 48h window)
     check_recent = db_session.query(User).filter(User.id == recent_user_id).first()
     assert check_recent is not None
     assert check_recent.status == "disabled"
+
+    # Verify personal data takeout email was dispatched for old_user
+    assert len(takeout_calls) >= 1
+    purged_takeout = [t for t in takeout_calls if t["email"] == "purged_student@example.com"]
+    assert len(purged_takeout) == 1
+    takeout_data = purged_takeout[0]["data"]
+    assert takeout_data["name"] == "Old Purged Student"
+    assert takeout_data["email"] == "purged_student@example.com"
+    assert takeout_data["phone"] == "+91 98765 43210"
+    assert takeout_data["disabled_reason"] == "left"
+
+    # Verify no takeout email was dispatched for safe_student
+    safe_takeout = [t for t in takeout_calls if t["email"] == "safe_student@example.com"]
+    assert len(safe_takeout) == 0
 
     # Verify audit log contains user_purged_permanently
     audit_entry = db_session.query(AuditLog).filter(

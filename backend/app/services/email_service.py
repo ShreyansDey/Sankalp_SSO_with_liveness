@@ -495,3 +495,124 @@ def send_renewal_status_email(
         logger.info("Dispatched renewal %s notice email to %s", status, to_email)
         return True
     return send_email(to_email, subject, text_content, html_content)
+
+
+def build_final_purge_takeout_email(user_data: dict) -> tuple[str, str]:
+    """
+    Generate final data takeout export & farewell email templates dispatched at the exact moment
+    an account is permanently hard-purged from the database after the 48-hour period.
+    """
+    name = (user_data.get("name") or "Member").strip()
+    email = user_data.get("email") or "N/A"
+    phone = user_data.get("phone") or "Not provided"
+    created_at = user_data.get("created_at")
+    disabled_at = user_data.get("disabled_at")
+    reason = user_data.get("disabled_reason") or "left"
+
+    created_str = created_at.strftime("%Y-%m-%d %H:%M UTC") if hasattr(created_at, "strftime") else str(created_at or "N/A")
+    disabled_str = disabled_at.strftime("%Y-%m-%d %H:%M UTC") if hasattr(disabled_at, "strftime") else str(disabled_at or "N/A")
+
+    reason_desc = "Administrative Revocation (Mark as Left)" if reason == "left" else \
+                  "Membership Term Expiration" if reason == "term_end" else \
+                  "60-Day Account Inactivity" if reason == "inactive" else reason
+
+    text_content = f"""Hello {name},
+
+FINAL DATA TAKEOUT & COMPLETE DATABASE PURGE NOTICE:
+Your 48-hour recovery window has completed. In accordance with our digital privacy and data retention policy, all your credential records, authentication profiles, and identity templates have been PERMANENTLY AND COMPLETELY PURGED from the entire database and storage vault. No frozen records remain.
+
+SUMMARY OF RECORDED DATA (EXPORTED PRIOR TO PURGE):
+--------------------------------------------------
+• Full Name: {name}
+• Registered Email: {email}
+• Contact Phone: {phone}
+• Account Enrolled On: {created_str}
+• Deactivation Date: {disabled_str}
+• Deactivation Reason: {reason_desc}
+• Biometric Data: Raw webcam video was never saved. Your 128-dimensional facial embedding vector has been permanently destroyed.
+• Supporting Identification: Uploaded student ID document files on disk have been completely erased.
+--------------------------------------------------
+
+RE-ENTRY INSTRUCTIONS:
+Because all your records have been completely and permanently erased from the system, you cannot restore this account. If you wish to rejoin or access campus club facilities in the future, you must submit a new registration with complete data and complete the e-KYC verification process again from scratch.
+
+Thank you for your time with our organization.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Final Data Takeout & Complete Database Purge Notice</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAF7; margin: 0; padding: 24px; color: #1C1917;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 620px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E7E5E4; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 24px 32px; background-color: #0F172A; color: #FFFFFF;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600;">Sankalp SSO &bull; Real Access</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #94A3B8;">Final Data Takeout &bull; Permanent Database Purge Notice</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <p style="font-size: 16px; margin: 0 0 16px;">Hello <strong>{name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #44403C; margin: 0 0 20px;">
+          Your <strong>48-hour recovery window has concluded</strong>. In accordance with institutional data minimization and privacy standards, <strong>all your credential records, session tokens, and identity templates have been COMPLETELY AND PERMANENTLY PURGED from our database and storage vault</strong>. No frozen records remain in the system.
+        </p>
+
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h4 style="margin: 0 0 12px; font-size: 14px; color: #0F172A; text-transform: uppercase; letter-spacing: 0.5px;">
+            📋 Final Personal Data Export (Takeout)
+          </h4>
+          <table width="100%" style="font-size: 13px; color: #334155; line-height: 1.6;">
+            <tr><td style="padding: 4px 0; font-weight: 600; width: 160px;">Full Name:</td><td>{name}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Institutional Email:</td><td>{email}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Contact Phone:</td><td>{phone}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Account Created:</td><td>{created_str}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Deactivation Date:</td><td>{disabled_str}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Deactivation Reason:</td><td>{reason_desc}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Biometric Embeddings:</td><td>128D mathematical vector permanently destroyed (zero video ever stored)</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Stored Documents:</td><td>All uploaded student ID files permanently erased from disk</td></tr>
+          </table>
+        </div>
+
+        <div style="background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 16px; margin: 24px 0;">
+          <h4 style="margin: 0 0 6px; color: #DC2626; font-size: 14px;">Re-entering the Organization</h4>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #991B1B;">
+            Because all your data records have been completely purged from the entire system, this account cannot be restored. To rejoin or access connected campus club facilities in the future, you must submit a new registration and complete e-KYC verification again from scratch.
+          </p>
+        </div>
+
+        <p style="font-size: 13px; color: #78716C; margin: 20px 0 0; line-height: 1.5;">
+          Thank you for your participation in campus club programs.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 16px 32px; background-color: #F5F5F4; border-top: 1px solid #E7E5E4; font-size: 12px; color: #78716C; text-align: center;">
+        Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def send_final_purge_takeout_email(
+    to_email: str,
+    user_data: dict,
+    background: bool = True
+) -> bool:
+    """Dispatches final data export & permanent database purge notification email."""
+    subject = "📦 Your Personal Data Export & Notice of Permanent Database Purge"
+    text_content, html_content = build_final_purge_takeout_email(user_data)
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched final purge takeout email to %s", to_email)
+        return True
+    return send_email(to_email, subject, text_content, html_content)
