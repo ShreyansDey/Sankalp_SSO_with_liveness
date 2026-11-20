@@ -112,6 +112,8 @@ export default function ResetPassword() {
   return (
     <div className="auth-split-layout" style={{
       minHeight: "100vh",
+      display: "flex",
+      flexWrap: "wrap",
       fontFamily: "'Inter', system-ui, sans-serif",
       color: "#12171E",
       background: "#F3EFE7"
