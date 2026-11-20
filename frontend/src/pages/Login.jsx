@@ -27,8 +27,6 @@ export default function Login() {
   const redirectUri = searchParams.get("redirect_uri") || "";
   const state = searchParams.get("state") || "";
 
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -74,9 +72,7 @@ export default function Login() {
         method: "POST",
         body: JSON.stringify({
           email,
-          password,
-          name: fullName.trim() || undefined,
-          phone: phone.trim() || undefined
+          password
         }),
       });
 
@@ -117,13 +113,9 @@ export default function Login() {
   const fillDevUser = (type) => {
     if (!import.meta.env.DEV) return;
     if (type === "admin") {
-      setFullName(import.meta.env.VITE_DEV_ADMIN_NAME || "Sankalp Admin");
-      setPhone(import.meta.env.VITE_DEV_ADMIN_PHONE || "+91 98765 00001");
       setEmail(import.meta.env.VITE_DEV_ADMIN_EMAIL || "admin@jadavpur.edu");
       setPassword(import.meta.env.VITE_DEV_ADMIN_PASSWORD || "shaan123");
     } else {
-      setFullName(import.meta.env.VITE_DEV_MEMBER_NAME || "Rahul Sharma");
-      setPhone(import.meta.env.VITE_DEV_MEMBER_PHONE || "+91 98765 00002");
       setEmail(import.meta.env.VITE_DEV_MEMBER_EMAIL || "rahul@club.edu");
       setPassword(import.meta.env.VITE_DEV_MEMBER_PASSWORD || "shaan123");
     }
@@ -321,35 +313,6 @@ export default function Login() {
 
           {/* Form */}
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {/* Full Name & Phone Number side-by-side */}
-            <div className="form-grid-2col">
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label htmlFor="fullname" style={{ fontSize: "12px", fontWeight: 500 }}>Full Name</label>
-                <input
-                  id="fullname"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Rahul Sharma"
-                  className="input-editorial"
-                  style={{ height: "38px", fontSize: "13.5px", padding: "0 12px" }}
-                />
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                <label htmlFor="phone" style={{ fontSize: "12px", fontWeight: 500 }}>Phone Number</label>
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
-                  className="input-editorial"
-                  style={{ height: "38px", fontSize: "13.5px", padding: "0 12px" }}
-                />
-              </div>
-            </div>
-
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               <label htmlFor="email" style={{ fontSize: "12px", fontWeight: 500 }}>Email Address</label>
               <input

@@ -70,6 +70,10 @@ export default function Signup() {
       setError("Please enter your full name.");
       return;
     }
+    if (/\d/.test(name)) {
+      setError("Full Name cannot contain numbers. Please enter letters only.");
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters long.");
       return;
@@ -389,10 +393,11 @@ export default function Signup() {
                     placeholder="e.g. Ananya Sen"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z\s'.\-]/g, ""))}
                     className="input-editorial"
                     style={{ height: "42px", fontSize: "14px" }}
                   />
+                  <div style={{ fontSize: "11px", color: "#5A6270" }}>Letters only (no numbers)</div>
                 </div>
 
                 {/* Password */}
