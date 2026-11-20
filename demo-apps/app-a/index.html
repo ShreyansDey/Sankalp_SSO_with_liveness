@@ -25,11 +25,18 @@ Technical Architecture:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   body { margin: 0; background: #F3EFE7; font-family: 'Inter', system-ui, sans-serif; color: #12171E; }
   a { color: #12171E; text-underline-offset: 3px; }
   a:hover { color: #8A4A0F; }
   button { font-family: inherit; cursor: pointer; }
   a:focus-visible, button:focus-visible { outline: 2px solid #D9822B; outline-offset: 2px; }
+  @media (max-width: 768px) {
+    header > div, [style*="padding: 28px 48px"], [style*="padding: 10px 48px"] { padding: 14px 16px !important; }
+    div[style*="padding: 40px 48px"] { padding: 20px 14px !important; gap: 20px !important; }
+    div[style*="padding: 48px"] { padding: 24px 16px !important; }
+    h1 { font-size: clamp(24px, 5.5vw, 34px) !important; }
+  }
 </style>
 </head>
 <body>

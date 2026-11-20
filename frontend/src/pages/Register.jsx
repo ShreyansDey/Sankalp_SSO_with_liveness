@@ -879,11 +879,11 @@ export default function Register() {
                   {/* Face outline guide */}
                   <div style={{
                     position: "absolute",
-                    top: "15%",
+                    top: "10%",
                     left: "50%",
                     transform: "translateX(-50%)",
-                    width: "130px",
-                    height: "170px",
+                    width: "120px",
+                    height: "150px",
                     borderRadius: "50%",
                     border: "2px dashed #D9822B",
                     pointerEvents: "none"
@@ -892,7 +892,8 @@ export default function Register() {
                     position: "absolute",
                     bottom: "10px",
                     display: "flex",
-                    gap: "8px"
+                    gap: "8px",
+                    zIndex: 2
                   }}>
                     <button
                       type="button"
@@ -936,6 +937,7 @@ export default function Register() {
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: "8px",
+                    flexWrap: "wrap",
                     background: "#EBE5D8",
                     border: "1px solid #C4BCAF",
                     borderRadius: "7px",
@@ -950,8 +952,8 @@ export default function Register() {
                       value={selectedDeviceId}
                       onChange={(e) => switchCamera(e.target.value)}
                       style={{
-                        flex: 1,
-                        maxWidth: "260px",
+                        flex: "1 1 180px",
+                        maxWidth: "100%",
                         height: "28px",
                         padding: "0 6px",
                         borderRadius: "4px",
@@ -984,6 +986,7 @@ export default function Register() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: "8px",
+                  flexWrap: "wrap",
                   background: "#FBF9F4",
                   border: "1px solid #DDD6C7",
                   borderRadius: "6px",
@@ -997,8 +1000,8 @@ export default function Register() {
                     value={selectedDeviceId}
                     onChange={(e) => switchCamera(e.target.value)}
                     style={{
-                      flex: 1,
-                      maxWidth: "260px",
+                      flex: "1 1 180px",
+                      maxWidth: "100%",
                       height: "28px",
                       padding: "0 6px",
                       borderRadius: "4px",

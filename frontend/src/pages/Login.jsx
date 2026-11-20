@@ -154,30 +154,34 @@ export default function Login() {
   }
 
   return (
-    <div style={{
-      height: "100vh",
-      maxHeight: "100vh",
-      overflow: "hidden",
-      display: "flex",
-      flexWrap: "wrap",
-      fontFamily: "'Inter', system-ui, sans-serif",
-      color: "#12171E",
-      background: "#F3EFE7"
-    }}>
+    <div
+      className="auth-split-layout"
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexWrap: "wrap",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        color: "#12171E",
+        background: "#F3EFE7"
+      }}
+    >
 
       {/* LEFT: Editorial Brand Panel */}
-      <div style={{
-        flex: "1 1 500px",
-        minWidth: "320px",
-        background: "#12171E",
-        color: "#E9E4D8",
-        boxSizing: "border-box",
-        padding: "36px 48px",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        gap: "24px"
-      }}>
+      <div
+        className="auth-brand-panel"
+        style={{
+          flex: "1 1 500px",
+          minWidth: "300px",
+          background: "#12171E",
+          color: "#E9E4D8",
+          boxSizing: "border-box",
+          padding: "36px 48px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: "24px"
+        }}
+      >
         {/* Brand Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -211,7 +215,7 @@ export default function Login() {
 
           {/* Sample Club Access Passes (staggered layout) */}
           <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "460px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "0px" }}>
+            <div className="brand-stagger-card" style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "0px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>RS</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Robotics Society</div>
@@ -220,7 +224,7 @@ export default function Login() {
               <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "3px 10px" }}>Active</div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "24px" }}>
+            <div className="brand-stagger-card" style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "24px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>AI</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Coding & AI Club</div>
@@ -229,7 +233,7 @@ export default function Login() {
               <div style={{ fontSize: "12px", fontWeight: 500, color: "#7FD1A0", background: "#16301F", borderRadius: "999px", padding: "3px 10px" }}>Active</div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "48px" }}>
+            <div className="brand-stagger-card" style={{ display: "flex", alignItems: "center", gap: "14px", background: "#1B222C", border: "1px solid #2A3340", borderRadius: "10px", padding: "12px 16px", marginLeft: "48px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#2A3340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 600, color: "#E9E4D8" }}>RK</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "15px", fontWeight: 500, color: "#F5F1E8" }}>Photography Club</div>
@@ -252,17 +256,20 @@ export default function Login() {
       </div>
 
       {/* RIGHT: Sign-in Form */}
-      <div style={{
-        flex: "1 1 440px",
-        minWidth: "320px",
-        boxSizing: "border-box",
-        padding: "24px 44px",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-        gap: "16px",
-        overflowY: "auto"
-      }}>
+      <div
+        className="auth-form-panel"
+        style={{
+          flex: "1 1 440px",
+          minWidth: "300px",
+          boxSizing: "border-box",
+          padding: "24px 44px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: "16px",
+          overflowY: "auto"
+        }}
+      >
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", fontSize: "13px", color: "#5A6270" }}>
           <div style={{ display: "flex", gap: "12px" }}>
             <span><Link to="/register" style={{ fontWeight: 600, color: "#D9822B" }}>Create account &rarr;</Link></span>
@@ -315,7 +322,7 @@ export default function Login() {
           {/* Form */}
           <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {/* Full Name & Phone Number side-by-side */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div className="form-grid-2col">
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <label htmlFor="fullname" style={{ fontSize: "12px", fontWeight: 500 }}>Full Name</label>
                 <input

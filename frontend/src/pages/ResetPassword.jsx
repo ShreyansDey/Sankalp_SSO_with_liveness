@@ -110,23 +110,21 @@ export default function ResetPassword() {
   };
 
   return (
-    <div style={{
+    <div className="auth-split-layout" style={{
       minHeight: "100vh",
-      display: "flex",
-      flexWrap: "wrap",
       fontFamily: "'Inter', system-ui, sans-serif",
       color: "#12171E",
       background: "#F3EFE7"
     }}>
 
       {/* LEFT: Editorial Brand Panel */}
-      <div style={{
+      <div className="auth-brand-panel" style={{
         flex: "1 1 480px",
-        minWidth: "320px",
+        minWidth: "min(100%, 320px)",
         background: "#12171E",
         color: "#E9E4D8",
         boxSizing: "border-box",
-        padding: "40px 48px",
+        padding: "clamp(24px, 4vw, 40px) clamp(20px, 4vw, 48px)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
@@ -212,11 +210,11 @@ export default function ResetPassword() {
       </div>
 
       {/* RIGHT: Form Panel */}
-      <div style={{
+      <div className="auth-form-panel" style={{
         flex: "1 1 440px",
-        minWidth: "320px",
+        minWidth: "min(100%, 320px)",
         boxSizing: "border-box",
-        padding: "36px 48px",
+        padding: "clamp(24px, 4vw, 36px) clamp(20px, 4vw, 48px)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",

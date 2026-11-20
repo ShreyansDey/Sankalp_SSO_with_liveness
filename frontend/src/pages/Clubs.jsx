@@ -146,7 +146,7 @@ export default function Clubs() {
           maxWidth: "1200px",
           margin: "0 auto",
           boxSizing: "border-box",
-          padding: "20px 48px",
+          padding: "clamp(12px, 3vw, 20px) clamp(14px, 4vw, 48px)",
           display: "flex",
           flexWrap: "wrap",
           alignItems: "center",
@@ -254,15 +254,15 @@ export default function Clubs() {
         maxWidth: "1200px",
         margin: "0 auto",
         boxSizing: "border-box",
-        padding: "48px 48px 40px",
+        padding: "clamp(20px, 4vw, 48px) clamp(14px, 4vw, 48px) 40px",
         display: "flex",
         flexDirection: "column",
-        gap: "40px"
+        gap: "clamp(20px, 4vw, 40px)"
       }}>
 
         {/* Welcome Header & Session Widget */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyBetween: "space-between", gap: "24px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px", minWidth: "min(100%, 300px)", flex: 1 }}>
             <div style={{ fontSize: "13px", fontWeight: 600, letterSpacing: "2.4px", color: "#8A4A0F" }}>
               YOUR CLUBS
             </div>
@@ -270,25 +270,24 @@ export default function Clubs() {
               margin: 0,
               fontFamily: "'Newsreader', Georgia, serif",
               fontWeight: 500,
-              fontSize: "clamp(36px, 5vw, 48px)",
-              lineHeight: 1.1
+              fontSize: "clamp(28px, 5vw, 48px)",
+              lineHeight: 1.15
             }}>
               Welcome, {user?.name?.split(" ")[0] || "Member"}.
             </h1>
-            <p style={{ margin: 0, fontSize: "16px", lineHeight: "1.5", color: "#5A6270", maxWidth: "540px" }}>
+            <p style={{ margin: 0, fontSize: "15px", lineHeight: "1.5", color: "#5A6270", maxWidth: "540px" }}>
               You signed in once. Open any club below with one click, with no new password and no camera check.
             </p>
           </div>
 
           <div style={{
-            marginLeft: "auto",
             display: "flex",
             alignItems: "center",
             gap: "12px",
             background: "#FBF9F4",
             border: "1px solid #DDD6C7",
             borderRadius: "12px",
-            padding: "14px 18px"
+            padding: "12px 16px"
           }}>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <circle cx="10" cy="10" r="7.5" stroke="#5A6270" strokeWidth="1.5"></circle>

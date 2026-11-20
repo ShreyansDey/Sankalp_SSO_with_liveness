@@ -396,16 +396,19 @@ export default function Admin() {
       <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "stretch" }}>
 
         {/* SIDEBAR NAVIGATION */}
-        <nav style={{
-          flex: "0 0 232px",
-          boxSizing: "border-box",
-          padding: "28px 16px",
-          borderRight: "1px solid #DDD6C7",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-          background: "#F3EFE7"
-        }}>
+        <nav
+          className="admin-sidebar-nav"
+          style={{
+            flex: "0 0 232px",
+            boxSizing: "border-box",
+            padding: "28px 16px",
+            borderRight: "1px solid #DDD6C7",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            background: "#F3EFE7"
+          }}
+        >
           <button
             onClick={() => setActiveTab("members")}
             style={{
@@ -631,7 +634,7 @@ export default function Admin() {
                       </div>
 
                       {/* Side-by-Side Biometric & Document Verification */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: "20px" }}>
                         {/* Live Webcam Portrait */}
                         <div style={{
                           background: "#F3EFE7",
@@ -1261,25 +1264,31 @@ export default function Admin() {
 
       {/* INVITE MEMBER MODAL */}
       {showInviteModal && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(18, 23, 30, 0.6)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "20px",
-          zIndex: 999
-        }}>
-          <div style={{
-            background: "#FBF9F4",
-            border: "1px solid #DDD6C7",
-            borderRadius: "16px",
-            padding: "32px",
-            maxWidth: "480px",
-            width: "100%",
-            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
-          }}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(18, 23, 30, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 999
+          }}
+        >
+          <div
+            className="modal-content"
+            style={{
+              background: "#FBF9F4",
+              border: "1px solid #DDD6C7",
+              borderRadius: "16px",
+              padding: "32px",
+              maxWidth: "480px",
+              width: "100%",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)"
+            }}
+          >
             <h2 style={{ margin: "0 0 8px", fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px" }}>
               Invite New Member
             </h2>
@@ -1348,6 +1357,7 @@ export default function Admin() {
       {/* IMAGE / DOCUMENT PREVIEW MODAL */}
       {previewImage && (
         <div
+          className="modal-overlay"
           onClick={() => setPreviewImage(null)}
           style={{
             position: "fixed",
@@ -1362,6 +1372,7 @@ export default function Admin() {
           }}
         >
           <div
+            className="modal-content"
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "#FBF9F4",
