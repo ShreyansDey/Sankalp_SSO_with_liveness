@@ -65,6 +65,10 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  // Field warning notices
+  const [nameWarning, setNameWarning] = useState("");
+  const [phoneWarning, setPhoneWarning] = useState("");
+
   const selectedCountry = COUNTRIES.find((c) => c.code === selectedCountryCode) || COUNTRIES[0];
 
   const handleCountryChange = (e) => {
@@ -74,19 +78,30 @@ export default function Register() {
     if (phoneNumber.length > country.digits) {
       setPhoneNumber(phoneNumber.slice(0, country.digits));
     }
+    setPhoneWarning("");
   };
 
   const handlePhoneChange = (e) => {
-    // Strictly numeric: strip out any text or letters immediately
-    const digitsOnly = e.target.value.replace(/\D/g, "");
+    const raw = e.target.value;
+    if (/[a-zA-Z]/.test(raw)) {
+      setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
+    } else {
+      setPhoneWarning("");
+    }
+    const digitsOnly = raw.replace(/\D/g, "");
     if (digitsOnly.length <= selectedCountry.digits) {
       setPhoneNumber(digitsOnly);
     }
   };
 
   const handleFullNameChange = (e) => {
-    // Strictly letters and spaces: strip out any digits or numbers immediately
-    const lettersOnly = e.target.value.replace(/[^a-zA-Z\s'.\-]/g, "");
+    const raw = e.target.value;
+    if (/\d/.test(raw)) {
+      setNameWarning("Numbers are not permitted in Full Name. Letters only.");
+    } else {
+      setNameWarning("");
+    }
+    const lettersOnly = raw.replace(/[^a-zA-Z\s'.\-]/g, "");
     setFullName(lettersOnly);
   };
 
@@ -791,20 +806,31 @@ export default function Register() {
                   placeholder="Rahul Sharma"
                   value={fullName}
                   onChange={handleFullNameChange}
+                  onKeyDown={(e) => {
+                    if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                      setNameWarning("Numbers are not permitted in Full Name. Letters only.");
+                    }
+                  }}
                   style={{
                     width: "100%",
                     height: "40px",
                     padding: "0 12px",
                     borderRadius: "7px",
-                    border: "1px solid #C4BCAF",
+                    border: nameWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
                     background: "#FDFBF7",
                     fontSize: "13.5px",
                     boxSizing: "border-box"
                   }}
                 />
-                <div style={{ fontSize: "11px", color: "#5A6270", marginTop: "3px" }}>
-                  Letters only (no numbers allowed)
-                </div>
+                {nameWarning ? (
+                  <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
+                    [!] {nameWarning}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "11px", color: "#5A6270", marginTop: "3px" }}>
+                    Letters only (no numbers allowed)
+                  </div>
+                )}
               </div>
 
               <div>
@@ -816,7 +842,7 @@ export default function Register() {
                   alignItems: "stretch",
                   width: "100%",
                   borderRadius: "7px",
-                  border: "1px solid #C4BCAF",
+                  border: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
                   background: "#FDFBF7",
                   overflow: "hidden",
                   boxSizing: "border-box"
@@ -827,7 +853,7 @@ export default function Register() {
                     display: "flex",
                     alignItems: "center",
                     background: "#EBE5D8",
-                    borderRight: "1px solid #C4BCAF",
+                    borderRight: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
                     flexShrink: 0
                   }}>
                     <select
@@ -876,6 +902,11 @@ export default function Register() {
                     placeholder={`${selectedCountry.placeholder}`}
                     value={phoneNumber}
                     onChange={handlePhoneChange}
+                    onKeyDown={(e) => {
+                      if (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                        setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
+                      }
+                    }}
                     maxLength={selectedCountry.digits}
                     style={{
                       flex: 1,
@@ -890,17 +921,23 @@ export default function Register() {
                     }}
                   />
                 </div>
-                {/* Character/digit counter & helper */}
-                <div style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "11px",
-                  color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270",
-                  marginTop: "3px"
-                }}>
-                  <span>Numbers only ({selectedCountry.name})</span>
-                  <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
-                </div>
+                {/* Character/digit counter & warning helper */}
+                {phoneWarning ? (
+                  <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
+                    [!] {phoneWarning}
+                  </div>
+                ) : (
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "11px",
+                    color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270",
+                    marginTop: "3px"
+                  }}>
+                    <span>Numbers only ({selectedCountry.name})</span>
+                    <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
+                  </div>
+                )}
               </div>
             </div>
 
