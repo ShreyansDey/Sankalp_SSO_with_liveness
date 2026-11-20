@@ -1,71 +1,198 @@
 <!doctype html>
 <!--
 ================================================================================
-REAL ACCESS / SANKALP SSO — CONNECTED DEMO APP B: ROBOTICS LAB
+REAL ACCESS / SANKALP SSO — CONNECTED DEMO APP B: ROBOTICS LABORATORY
 ================================================================================
-In plain words (Layman):
-  This is the official portal for the University Robotics Lab (running on port 5175).
-  Just like the Photography Club, it connects to the central SSO server on port 8000.
-  When a student has signed into Real Access, clicking "Open" instantly opens this lab
-  without asking for their password again (Single Sign-On).
-  If an admin marks the student as "left", the next time the app checks the token,
-  access is immediately denied.
-
-Technical Architecture:
-  - Port: 5175
-  - Client ID: app-b
-  - Secret: secret-app-b-key-2026
-  - Callback URL: http://localhost:5175/callback
-  - Standard OAuth 2.0 Authorization Code Flow
-  - Real-time token validation against GET /userinfo
+Institutional Student Laboratory Portal (Port 5175)
+Authenticates via Real Access OAuth 2.0 Central Identity Provider.
 ================================================================================
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Robotics Lab — Real Access</title>
+<title>Robotics Laboratory — Jadavpur University</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
-  body { margin: 0; background: #F3EFE7; font-family: 'Inter', system-ui, sans-serif; color: #12171E; }
+  body {
+    margin: 0;
+    background: #F7F5F0;
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    color: #12171E;
+    -webkit-font-smoothing: antialiased;
+  }
   a { color: #12171E; text-underline-offset: 3px; }
   a:hover { color: #8A4A0F; }
   button { font-family: inherit; cursor: pointer; }
   a:focus-visible, button:focus-visible { outline: 2px solid #D9822B; outline-offset: 2px; }
-  @media (max-width: 768px) {
-    header > div, [style*="padding: 28px 48px"], [style*="padding: 10px 48px"] { padding: 14px 16px !important; }
-    div[style*="padding: 40px 48px"] { padding: 20px 14px !important; gap: 20px !important; }
-    div[style*="padding: 48px"] { padding: 24px 16px !important; }
-    h1 { font-size: clamp(24px, 5.5vw, 34px) !important; }
+  
+  .inst-header-shadow {
+    box-shadow: 0 1px 3px rgba(18,23,30,0.04), 0 4px 12px -2px rgba(18,23,30,0.03);
+  }
+  .inst-card {
+    background: #FFFFFF;
+    border: 1px solid #E5DFD3;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(18,23,30,0.03);
+  }
+  .inst-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  
+  @media (max-width: 860px) {
+    .inst-grid-2col { flex-direction: column !important; }
+    .inst-sidebar { width: 100% !important; max-width: none !important; }
+    .inst-header-inner { padding: 18px 20px !important; }
+    .inst-main-pad { padding: 24px 16px !important; }
   }
 </style>
 </head>
 <body>
 
 <div id="app-root">
-  <!-- Initial Unauthenticated State -->
-  <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px;">
-    <div style="background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 16px; padding: 48px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04);">
-      <div style="width: 64px; height: 64px; border-radius: 16px; background: #12171E; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F5F1E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="11" width="18" height="10" rx="2"></rect>
-          <circle cx="12" cy="5" r="2"></circle>
-          <path d="M12 7v4"></path>
-          <line x1="8" y1="16" x2="8" y2="16"></line>
-          <line x1="16" y1="16" x2="16" y2="16"></line>
-        </svg>
+  <!-- Initial Unauthenticated State: Institutional Laboratory Gateway -->
+  <div style="min-height: 100vh; display: flex; flex-direction: column;">
+    
+    <!-- Top University Masthead -->
+    <div style="background: #12171E; color: #D8D2C4; border-bottom: 1px solid #232B36;">
+      <div style="max-width: 1240px; margin: 0 auto; padding: 12px 36px; display: flex; align-items: center; justify-content: space-between; font-size: 13px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="16" cy="16" r="14" stroke="#D9822B" stroke-width="2.5"></circle>
+            <circle cx="16" cy="16" r="5" fill="#D9822B"></circle>
+            <path d="M2 16h6M24 16h6" stroke="#D9822B" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+          <span style="font-weight: 500; color: #F5F1E8; letter-spacing: 0.2px;">Jadavpur University</span>
+          <span style="color: #6B7280;">•</span>
+          <span style="color: #A9B0BA;">Central Single Sign-On (Real Access)</span>
+        </div>
+        <div class="inst-mono" style="font-size: 11.5px; color: #D9822B; letter-spacing: 1px;">
+          FACILITY CODE: JU-ENG-ROB-02
+        </div>
       </div>
-      <h1 style="font-family: 'Newsreader', Georgia, serif; font-size: 32px; font-weight: 500; margin: 0 0 10px;">Robotics Lab</h1>
-      <p style="color: #5A6270; font-size: 15px; line-height: 1.5; margin: 0 0 28px;">
-        Hardware benches, microcontroller kits, 3D printer queue, and ROS compute clusters. Single sign-on authentication.
-      </p>
-      <button onclick="initiateLogin()" style="height: 48px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-weight: 600; color: #F5F1E8; background: #12171E; border: 0; border-radius: 8px;">
-        Sign in with Real Access
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9h12M10 4l5 5-5 5" stroke="#F5F1E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-      </button>
     </div>
+
+    <!-- Gateway Banner -->
+    <header class="inst-header-shadow" style="background: #FFFFFF; border-bottom: 1px solid #E5DFD3;">
+      <div class="inst-header-inner" style="max-width: 1240px; margin: 0 auto; padding: 32px 36px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px;">
+        <div style="display: flex; align-items: center; gap: 20px;">
+          <div style="width: 58px; height: 58px; border-radius: 12px; background: #12171E; border: 2px solid #D9822B; color: #F5F1E8; display: flex; align-items: center; justify-content: center; font-family: 'Newsreader', Georgia, serif; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
+            RL
+          </div>
+          <div>
+            <div style="font-size: 12.5px; color: #6B7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600;">
+              Faculty of Engineering & Technology
+            </div>
+            <h1 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-size: 34px; font-weight: 500; color: #12171E; line-height: 1.15;">
+              Robotics & Autonomous Systems Laboratory
+            </h1>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 12.5px; color: #1F6B3F; background: #EAF5EE; border: 1px solid #CCE6D4; padding: 6px 14px; border-radius: 999px; font-weight: 600;">
+            ● Facility Operational
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Gateway Layout -->
+    <main class="inst-main-pad" style="flex: 1; max-width: 1240px; width: 100%; margin: 0 auto; padding: 40px 36px;">
+      <div class="inst-grid-2col" style="display: flex; gap: 36px; align-items: stretch;">
+        
+        <!-- Left: Department Overview & Facility Specs -->
+        <div class="inst-card" style="flex: 1 1 600px; padding: 36px; display: flex; flex-direction: column; justify-content: space-between; gap: 28px;">
+          <div>
+            <div style="font-size: 11.5px; font-weight: 700; color: #D9822B; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px;">
+              Departmental Laboratory Brief
+            </div>
+            <p style="font-size: 16px; line-height: 1.65; color: #3A4250; margin: 0 0 24px;">
+              The Robotics & Autonomous Systems Laboratory supports student research in embedded microcontroller design, ROS 2 robotics frameworks, computer vision SLAM pipelines, and autonomous drone navigation.
+            </p>
+            
+            <div style="border-top: 1px solid #ECE7DC; padding-top: 20px;">
+              <h3 style="margin: 0 0 16px; font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px; color: #6B7280; font-weight: 600;">
+                Laboratory Specifications & Access Requirements
+              </h3>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+                <div style="background: #FAF8F5; border: 1px solid #EAE4D8; border-radius: 8px; padding: 14px;">
+                  <div style="font-size: 12px; color: #6B7280; margin-bottom: 4px;">Laboratory Location</div>
+                  <div style="font-weight: 600; font-size: 14px; color: #12171E;">Engineering Wing B, Room EB-04</div>
+                </div>
+                <div style="background: #FAF8F5; border: 1px solid #EAE4D8; border-radius: 8px; padding: 14px;">
+                  <div style="font-size: 12px; color: #6B7280; margin-bottom: 4px;">Operating Hours</div>
+                  <div style="font-weight: 600; font-size: 14px; color: #12171E;">Mon – Sat: 08:30 – 21:00 IST</div>
+                </div>
+                <div style="background: #FAF8F5; border: 1px solid #EAE4D8; border-radius: 8px; padding: 14px;">
+                  <div style="font-size: 12px; color: #6B7280; margin-bottom: 4px;">Faculty Advisor</div>
+                  <div style="font-weight: 600; font-size: 14px; color: #12171E;">Prof. S. Sen (Dept. of ETCE)</div>
+                </div>
+                <div style="background: #FAF8F5; border: 1px solid #EAE4D8; border-radius: 8px; padding: 14px;">
+                  <div style="font-size: 12px; color: #6B7280; margin-bottom: 4px;">Hardware Cluster</div>
+                  <div style="font-weight: 600; font-size: 14px; color: #12171E;">ROS 2 Humble / Prusa MK4</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: #F4EFE6; border-left: 3px solid #D9822B; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 13px; color: #5A6270; line-height: 1.55;">
+            <strong>Institutional Security Policy:</strong> Access to physical benches, firmware flashing tools, and ROS clusters is strictly governed by Jadavpur University Central SSO with mandatory in-browser biometric liveness verification.
+          </div>
+        </div>
+
+        <!-- Right: Single Sign-On Access Gate Card -->
+        <div class="inst-card inst-sidebar" style="width: 440px; padding: 36px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+              <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #D9822B;"></span>
+              <span style="font-size: 12px; font-weight: 700; letter-spacing: 1.8px; color: #12171E; text-transform: uppercase;">
+                Authorized Member Access
+              </span>
+            </div>
+            
+            <h2 style="margin: 0 0 12px; font-family: 'Newsreader', Georgia, serif; font-size: 26px; font-weight: 500; color: #12171E;">
+              Authenticate with Central Credentials
+            </h2>
+            
+            <p style="font-size: 14px; color: #5A6270; line-height: 1.55; margin: 0 0 24px;">
+              Sign in with your verified university credentials. Once authenticated through Central SSO, your session grants instant single-click access across all authorized campus societies.
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; font-size: 13px; color: #4A5260;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F6B3F" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>OAuth 2.0 Authorization Code exchange</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F6B3F" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Proof of live human presence (camera liveness)</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F6B3F" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Instant automated revocation when marked as left</span>
+              </div>
+            </div>
+
+            <button onclick="initiateLogin()" style="height: 48px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; font-weight: 600; color: #F5F1E8; background: #12171E; border: 0; border-radius: 8px; transition: background 0.2s ease;">
+              Sign in with Real Access
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9h12M10 4l5 5-5 5" stroke="#F5F1E8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+          </div>
+
+          <div style="border-top: 1px solid #ECE7DC; padding-top: 16px; font-size: 12px; color: #8A92A0; text-align: center;">
+            Jadavpur University Student Identity Gateway • IEEE / ACM Student Branch Affiliate
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Institutional Footer -->
+    <footer style="background: #EDE8DE; border-top: 1px solid #DDD6C7; padding: 20px 36px; text-align: center; font-size: 13px; color: #6B7280;">
+      Jadavpur University Central Authentication Service • Self-Hosted SSO for Recognized Campus Societies • Real Person, Real Access
+    </footer>
   </div>
 </div>
 
@@ -88,12 +215,14 @@ Technical Architecture:
 
     window.history.replaceState({}, document.title, window.location.pathname);
     document.getElementById("app-root").innerHTML = `
-      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
-        <div style="background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 14px; padding: 32px; text-align: center;">
-          <h2 style="font-family: 'Newsreader', Georgia, serif;">Authenticating with Real Access...</h2>
-          <p style="color: #5A6270; font-size: 14px;">Exchanging authorization code for session tokens.</p>
+      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;">
+        <div class="inst-card" style="padding: 40px; max-width: 480px; width: 100%; text-align: center;">
+          <div style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid #D9822B; border-top-color: transparent; animation: spin 0.8s linear infinite; margin: 0 auto 20px;"></div>
+          <h2 style="font-family: 'Newsreader', Georgia, serif; font-size: 24px; margin: 0 0 8px;">Authenticating with Real Access...</h2>
+          <p style="color: #5A6270; font-size: 14px; margin: 0;">Validating authorization code and issuing cryptographic lab credentials.</p>
         </div>
       </div>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     `;
 
     try {
@@ -173,13 +302,15 @@ Technical Architecture:
 
   function renderAccessDenied(reason = "Access Revoked") {
     document.getElementById("app-root").innerHTML = `
-      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div style="background: #FBF9F4; border: 2px solid #9B3A22; border-radius: 16px; padding: 48px; max-width: 500px; width: 100%; text-align: center;">
-          <div style="width: 56px; height: 56px; border-radius: 50%; background: #F6DDD4; color: #9B3A22; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 26px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9B3A22" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></div>
-          <h2 style="font-family: 'Newsreader', Georgia, serif; font-size: 32px; color: #9B3A22; margin: 0 0 10px;">ACCESS DENIED</h2>
-          <div style="font-size: 15px; font-weight: 500; color: #9B3A22; margin-bottom: 16px;">${reason}</div>
+      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;">
+        <div class="inst-card" style="border: 2px solid #9B3A22; padding: 48px; max-width: 500px; width: 100%; text-align: center;">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: #F6DDD4; color: #9B3A22; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9B3A22" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+          </div>
+          <h2 style="font-family: 'Newsreader', Georgia, serif; font-size: 28px; color: #9B3A22; margin: 0 0 8px;">ACCESS TERMINATED</h2>
+          <div style="font-size: 14px; font-weight: 600; color: #9B3A22; margin-bottom: 14px;">${reason}</div>
           <p style="color: #5A6270; font-size: 14px; line-height: 1.6; margin: 0 0 28px;">
-            Your account has been marked as left or expired. All sessions and refresh tokens were terminated immediately.
+            Your account access was immediately revoked across all 5 campus clubs. All active tokens and refresh tokens have been invalidated by the central registry.
           </p>
           <button onclick="sessionStorage.clear(); window.location.href='http://localhost:5180';" style="height: 44px; padding: 0 24px; font-size: 14px; font-weight: 600; color: #12171E; background: transparent; border: 1px solid #12171E; border-radius: 8px;">
             Return to Central Portal
@@ -196,159 +327,278 @@ Technical Architecture:
     document.getElementById("app-root").innerHTML = `
       <div style="min-height: 100vh; display: flex; flex-direction: column;">
         
-        <!-- Top SSO Strip -->
+        <!-- Top Institutional Masthead -->
         <div style="background: #12171E; color: #D8D2C4;">
-          <div style="max-width: 1200px; margin: 0 auto; box-sizing: border-box; padding: 10px 48px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px;">
+          <div style="max-width: 1240px; margin: 0 auto; box-sizing: border-box; padding: 10px 36px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px;">
             <div style="display: flex; align-items: center; gap: 10px;">
               <svg width="18" height="18" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="#D9822B" stroke-width="2.5"></circle><circle cx="16" cy="16" r="5" fill="#D9822B"></circle></svg>
-              <span>${user.role === 'admin' ? 'Administrator Inspection Mode — Viewing as system supervisor' : `Signed in with Real Access as <strong style="font-weight: 600; color: #F5F1E8;">${user.name}</strong> (${user.email})`}</span>
+              <span>${user.role === 'admin' ? 'Administrator Inspection Mode — Viewing as central system supervisor' : `Signed in with Real Access as <strong style="font-weight: 600; color: #F5F1E8;">${user.name}</strong> (${user.email})`}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 20px;">
-              <a href="http://localhost:5180/clubs" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Switch club</a>
+              <a href="http://localhost:5180/clubs" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Switch society</a>
               <a href="javascript:void(0)" onclick="signOut()" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Sign out</a>
             </div>
           </div>
         </div>
 
-        <!-- Club Header -->
-        <header style="background: #E2DDF5; border-bottom: 1px solid #D3CBB9;">
-          <div style="max-width: 1200px; margin: 0 auto; box-sizing: border-box; padding: 28px 48px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px;">
+        <!-- Academic Portal Header (Crisp Institutional White) -->
+        <header class="inst-header-shadow" style="background: #FFFFFF; border-bottom: 1px solid #E5DFD3;">
+          <div class="inst-header-inner" style="max-width: 1240px; margin: 0 auto; box-sizing: border-box; padding: 26px 36px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px;">
             <div style="display: flex; align-items: center; gap: 20px;">
-              <div style="width: 64px; height: 64px; border-radius: 14px; background: #12171E; display: flex; align-items: center; justify-content: center;">
-                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#F5F1E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="10" rx="2"></rect>
-                  <circle cx="12" cy="5" r="2"></circle>
-                  <path d="M12 7v4"></path>
-                  <line x1="8" y1="16" x2="8" y2="16"></line>
-                  <line x1="16" y1="16" x2="16" y2="16"></line>
-                </svg>
+              <div style="width: 58px; height: 58px; border-radius: 12px; background: #12171E; border: 2px solid #D9822B; color: #F5F1E8; display: flex; align-items: center; justify-content: center; font-family: 'Newsreader', Georgia, serif; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">
+                RL
               </div>
               <div>
-                <div style="font-size: 13px; margin-bottom: 4px;"><a href="http://localhost:5180/clubs" style="color: #4A5260;">All clubs</a> <span style="color: #6B7280;">/</span> Robotics Lab</div>
-                <h1 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 38px; line-height: 1.1;">Robotics Lab</h1>
+                <div style="font-size: 13px; margin-bottom: 4px; color: #6B7280;">
+                  <a href="http://localhost:5180/clubs" style="color: #6B7280; text-decoration: none;">University Societies & Labs</a>
+                  <span style="color: #B9B2A3; margin: 0 4px;">/</span>
+                  <span style="color: #12171E; font-weight: 500;">Robotics Laboratory</span>
+                </div>
+                <h1 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 32px; line-height: 1.15; color: #12171E;">
+                  Robotics & Autonomous Systems Laboratory
+                </h1>
               </div>
             </div>
             ${user.role === 'admin' ? `
-            <div style="font-size: 13px; font-weight: 500; color: #8A4A0F; background: #FDE8D7; border: 1px solid #D9822B; border-radius: 999px; padding: 6px 14px;">
-              Administrator · Oversight
+            <div style="font-size: 13px; font-weight: 600; color: #8A4A0F; background: #FDE8D7; border: 1px solid #D9822B; border-radius: 999px; padding: 6px 16px;">
+              Administrator · Registry Oversight
             </div>
             ` : `
-            <div style="font-size: 13px; font-weight: 500; color: #1F6B3F; background: #DDEFE2; border-radius: 999px; padding: 6px 14px;">
-              Member · Active
+            <div style="font-size: 13px; font-weight: 600; color: #1F6B3F; background: #EAF5EE; border: 1px solid #CCE6D4; border-radius: 999px; padding: 6px 16px;">
+              ● Verified Active Member · Term 2026–2027
             </div>
             `}
           </div>
         </header>
 
-        <!-- Main Content -->
-        <div style="flex: 1; width: 100%; max-width: 1200px; margin: 0 auto; box-sizing: border-box; padding: 40px 48px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 40px;">
+        <!-- Main Dashboard Layout -->
+        <main class="inst-main-pad" style="flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; box-sizing: border-box; padding: 36px; display: flex; flex-direction: column; gap: 32px;">
           
-          <main style="flex: 1 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 28px;">
-            <div style="display: flex; flex-wrap: wrap; gap: 24px;">
+          <div class="inst-grid-2col" style="display: flex; gap: 32px; align-items: flex-start;">
+            
+            <!-- Left Primary Column (Events, Stations, Bulletins) -->
+            <div style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 28px;">
               
-              <!-- Next Meeting Card -->
-              <section style="flex: 2 1 340px; background: #12171E; color: #F5F1E8; border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 20px;">
-                <div style="font-size: 12px; font-weight: 600; letter-spacing: 2.2px; color: #D9822B;">NEXT EVENT</div>
+              <!-- Next Scheduled Lab Workshop / Meeting Card -->
+              <section style="background: #12171E; color: #F5F1E8; border-radius: 12px; padding: 28px; display: flex; flex-direction: column; gap: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <div style="font-size: 11.5px; font-weight: 700; letter-spacing: 2px; color: #D9822B; text-transform: uppercase;">
+                    Next Scheduled Laboratory Session
+                  </div>
+                  <span class="inst-mono" style="font-size: 12px; color: #A9B0BA;">BENCH 04</span>
+                </div>
+                
                 <div style="display: flex; align-items: center; gap: 20px;">
-                  <div style="width: 72px; flex: none; text-align: center; background: #1B222C; border: 1px solid #2A3340; border-radius: 12px; padding: 10px 0;">
-                    <div style="font-size: 12px; letter-spacing: 1.5px; color: #A9B0BA;">NOV</div>
-                    <div style="font-family: 'Newsreader', Georgia, serif; font-size: 34px; font-weight: 500; line-height: 1;">24</div>
+                  <div style="width: 74px; flex: none; text-align: center; background: #1B222C; border: 1px solid #2A3340; border-radius: 10px; padding: 10px 0;">
+                    <div style="font-size: 11px; letter-spacing: 1.5px; color: #A9B0BA; text-transform: uppercase; font-weight: 600;">NOV</div>
+                    <div style="font-family: 'Newsreader', Georgia, serif; font-size: 36px; font-weight: 500; line-height: 1; color: #F5F1E8;">24</div>
                   </div>
                   <div>
-                    <h2 style="margin: 0 0 6px; font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 26px; line-height: 1.2;">Autonomous Drone Navigation</h2>
-                    <div style="font-size: 14px; color: #A9B0BA;">Monday, 5:00 PM · Lab Bench 4 & Arena</div>
+                    <h2 style="margin: 0 0 6px; font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 24px; line-height: 1.25; color: #F5F1E8;">
+                      Autonomous Drone Navigation & Visual SLAM
+                    </h2>
+                    <div style="font-size: 14px; color: #A9B0BA;">
+                      Monday, 5:00 PM – 7:30 PM • Robotics Arena & Workstation Cluster
+                    </div>
                   </div>
                 </div>
+
                 ${user.role === 'admin' ? `
-                <div style="font-size: 13px; color: #A9B0BA; font-style: italic; padding: 8px 0;">
-                  Admin Oversight: Event RSVP and student attendance is disabled for administrators.
+                <div style="font-size: 13px; color: #A9B0BA; font-style: italic; border-top: 1px solid #232B36; padding-top: 14px;">
+                  Administrator Oversight Mode: Attendance reservation is reserved for enrolled student members.
                 </div>
                 ` : `
-                <button onclick="alert('RSVP confirmed!')" style="align-self: flex-start; height: 44px; padding: 0 24px; font-size: 14px; font-weight: 600; color: #12171E; background: #F5F1E8; border: 0; border-radius: 8px; cursor: pointer;">
-                  I will be there
-                </button>
+                <div style="border-top: 1px solid #232B36; padding-top: 16px; display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 13px; color: #A9B0BA;">Instructors: Prof. S. Sen & Senior Project Fellows</span>
+                  <button onclick="alert('Seat reserved for Autonomous Drone Navigation!')" style="height: 38px; padding: 0 20px; font-size: 13.5px; font-weight: 600; color: #12171E; background: #F5F1E8; border: 0; border-radius: 6px; cursor: pointer; transition: background 0.15s ease;">
+                    Confirm Attendance
+                  </button>
+                </div>
                 `}
               </section>
 
-              <!-- Your Access Card -->
-              <section style="flex: 1 1 280px; background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 16px;">
-                <h2 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 22px;">Your access</h2>
-                <dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 14px;">
-                  <dt style="color: #5A6270;">Role</dt><dd style="margin: 0; font-weight: 500; text-transform: capitalize;">${user.role}</dd>
-                  <dt style="color: #5A6270;">Ends on</dt><dd style="margin: 0; font-weight: 500;">${user.role === "admin" ? "Permanent (System Admin)" : "30 Jun 2027"}</dd>
-                  <dt style="color: #5A6270;">Token</dt><dd style="margin: 0; font-weight: 500;">Valid (10 min JWT)</dd>
-                </dl>
-                <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #5A6270;">
-                  Access ends automatically on this date. An admin can also end it earlier.
-                </p>
-                <button onclick="refreshToken().then(() => alert('Token verified and refreshed!'))" style="align-self: flex-start; height: 36px; padding: 0 14px; font-size: 13px; font-weight: 600; color: #12171E; background: transparent; border: 1px solid #B9B2A3; border-radius: 8px;">
-                  Test Token Status
-                </button>
+              <!-- Laboratory Equipment & Queue Status -->
+              <section class="inst-card" style="padding: 26px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                  <h3 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-size: 20px; font-weight: 600; color: #12171E;">
+                    Laboratory Station Availability
+                  </h3>
+                  <span class="inst-mono" style="font-size: 11px; color: #6B7280;">LIVE TELEMETRY</span>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #FAF8F5; border: 1px solid #ECE7DC; border-radius: 8px;">
+                    <div>
+                      <div style="font-size: 14px; font-weight: 600; color: #12171E;">Prusa MK4 3D Additive Units (x2)</div>
+                      <div style="font-size: 12.5px; color: #6B7280;">Filament: PETG Black • 2 jobs printing</div>
+                    </div>
+                    <span style="font-size: 12px; font-weight: 600; color: #8A4A0F; background: #FDE8D7; padding: 4px 10px; border-radius: 6px;">
+                      Queue Active (42m remaining)
+                    </span>
+                  </div>
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #FAF8F5; border: 1px solid #ECE7DC; border-radius: 8px;">
+                    <div>
+                      <div style="font-size: 14px; font-weight: 600; color: #12171E;">ROS 2 Humble Simulation Cluster</div>
+                      <div style="font-size: 12.5px; color: #6B7280;">8 Dedicated Compute Nodes (Gazebo / RViz)</div>
+                    </div>
+                    <span style="font-size: 12px; font-weight: 600; color: #1F6B3F; background: #EAF5EE; padding: 4px 10px; border-radius: 6px;">
+                      8 of 8 Online (14% Load)
+                    </span>
+                  </div>
+
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #FAF8F5; border: 1px solid #ECE7DC; border-radius: 8px;">
+                    <div>
+                      <div style="font-size: 14px; font-weight: 600; color: #12171E;">Oscilloscope & Firmware Benches</div>
+                      <div style="font-size: 12.5px; color: #6B7280;">Rigol 100MHz Dual-Channel + JTAG debuggers</div>
+                    </div>
+                    <span style="font-size: 12px; font-weight: 600; color: #1F6B3F; background: #EAF5EE; padding: 4px 10px; border-radius: 6px;">
+                      4 Benches Open
+                    </span>
+                  </div>
+                </div>
               </section>
+
+              <!-- Department Bulletins & Announcements -->
+              <section class="inst-card" style="padding: 26px;">
+                <h3 style="margin: 0 0 16px; font-family: 'Newsreader', Georgia, serif; font-size: 20px; font-weight: 600; color: #12171E;">
+                  Departmental Notices
+                </h3>
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                  <div style="border-left: 3px solid #12171E; padding-left: 14px;">
+                    <div style="font-size: 14.5px; font-weight: 600; color: #12171E;">ROS 2 Humble Update Deployed</div>
+                    <div style="font-size: 13px; color: #5A6270; margin-top: 3px;">All workstations have been upgraded with Nav2 and micro-ROS dependencies. Please recompile local workspaces.</div>
+                    <div style="font-size: 11.5px; color: #8A92A0; margin-top: 4px;">Posted yesterday by Lab Administrator</div>
+                  </div>
+                  <div style="border-left: 3px solid #D9822B; padding-left: 14px;">
+                    <div style="font-size: 14.5px; font-weight: 600; color: #12171E;">Drone Arena Safety Induction Mandatory</div>
+                    <div style="font-size: 13px; color: #5A6270; margin-top: 3px;">Net enclosure flight cage requires safety briefing sign-off before autonomous flights can be triggered.</div>
+                    <div style="font-size: 11.5px; color: #8A92A0; margin-top: 4px;">Posted 3 days ago by Faculty In-Charge</div>
+                  </div>
+                </div>
+              </section>
+
             </div>
 
-            <!-- Announcements -->
-            <section style="background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 8px;">
-              <h2 style="margin: 0 0 8px; font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 22px;">Announcements</h2>
-              <div style="padding: 14px 0; border-top: 1px solid #E6E0D2;">
-                <div style="font-size: 15px; font-weight: 500; line-height: 1.4;">ROS 2 Humble installed on all lab workstations</div>
-                <div style="font-size: 13px; color: #5A6270; margin-top: 4px;">Posted yesterday</div>
-              </div>
-              <div style="padding: 14px 0 0; border-top: 1px solid #E6E0D2;">
-                <div style="font-size: 15px; font-weight: 500; line-height: 1.4;">Prusa MK4 3D printing filaments restocked</div>
-                <div style="font-size: 13px; color: #5A6270; margin-top: 4px;">Submit STL prints by Thursday</div>
-              </div>
-            </section>
-          
-            ${user.role === 'admin' ? `
-            <!-- Club Members Roster (Admin Inspection View) -->
-            <section style="background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                <h2 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-weight: 600; font-size: 22px;">Club Members Roster</h2>
-                <span style="font-size: 12px; font-weight: 500; color: #8A4A0F; background: #FDE8D7; border: 1px solid #D9822B; border-radius: 999px; padding: 4px 12px;">Admin Oversight Mode</span>
-              </div>
-              <p style="margin: 0; font-size: 13.5px; color: #5A6270; line-height: 1.5;">
-                As a system administrator, you have supervisory oversight of this club. Below are the enrolled student members:
-              </p>
-              <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                  <thead>
-                    <tr style="text-align: left; font-size: 12px; color: #5A6270; border-bottom: 1px solid #E6E0D2;">
-                      <th style="padding: 8px 12px;">STUDENT MEMBER</th>
-                      <th style="padding: 8px 12px;">EMAIL</th>
-                      <th style="padding: 8px 12px;">VALID UNTIL</th>
-                      <th style="padding: 8px 12px;">STATUS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr style="border-bottom: 1px solid #E6E0D2;">
-                      <td style="padding: 10px 12px; font-weight: 500;">Rahul Sharma</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">rahul@club.edu</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">30 Jun 2027</td>
-                      <td style="padding: 10px 12px; color: #1F6B3F; font-weight: 500;">Active</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #E6E0D2;">
-                      <td style="padding: 10px 12px; font-weight: 500;">Priya Patel</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">priya@club.edu</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">31 Mar 2027</td>
-                      <td style="padding: 10px 12px; color: #1F6B3F; font-weight: 500;">Active</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 10px 12px; font-weight: 500;">Pooja Sen</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">inactive@club.edu</td>
-                      <td style="padding: 10px 12px; color: #5A6270;">Term Expired</td>
-                      <td style="padding: 10px 12px; color: #9B3A22; font-weight: 500;">Access Ended</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-            ` : ''}
+            <!-- Right Sidebar: Authorized Pass & Cryptographic Token Info -->
+            <div class="inst-sidebar" style="width: 380px; flex: none; display: flex; flex-direction: column; gap: 24px;">
+              
+              <!-- Digital Access Pass Card -->
+              <section class="inst-card" style="padding: 28px; display: flex; flex-direction: column; gap: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ECE7DC; padding-bottom: 14px;">
+                  <h3 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-size: 20px; font-weight: 600; color: #12171E;">
+                    Laboratory Access Pass
+                  </h3>
+                  <span class="inst-mono" style="font-size: 11px; color: #D9822B; font-weight: 600;">ACTIVE</span>
+                </div>
 
-          </main>
-        </div>
+                <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13.5px;">
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F4EFE6; padding-bottom: 8px;">
+                    <span style="color: #6B7280;">Student Member</span>
+                    <span style="font-weight: 600; color: #12171E;">${user.name}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F4EFE6; padding-bottom: 8px;">
+                    <span style="color: #6B7280;">Email Address</span>
+                    <span class="inst-mono" style="color: #12171E; font-size: 12.5px;">${user.email}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F4EFE6; padding-bottom: 8px;">
+                    <span style="color: #6B7280;">Authority Level</span>
+                    <span style="font-weight: 600; text-transform: capitalize; color: #12171E;">${user.role}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F4EFE6; padding-bottom: 8px;">
+                    <span style="color: #6B7280;">Term End Date</span>
+                    <span style="font-weight: 600; color: #12171E;">${user.role === "admin" ? "Indefinite (Admin)" : (user.term_end || "30 Jun 2027")}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F4EFE6; padding-bottom: 8px;">
+                    <span style="color: #6B7280;">Security Token</span>
+                    <span class="inst-mono" style="font-size: 11.5px; color: #1F6B3F; font-weight: 600;">RS256 JWT (10m)</span>
+                  </div>
+                </div>
+
+                <div style="background: #FAF8F5; border: 1px solid #ECE7DC; border-radius: 8px; padding: 12px; font-size: 12px; color: #5A6270; line-height: 1.5;">
+                  <strong>Automated Expiry:</strong> Laboratory credentials terminate automatically on your term end date or immediately if marked as left by departmental administration.
+                </div>
+
+                <button onclick="testTokenHandshake()" style="height: 38px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 600; color: #12171E; background: #FFFFFF; border: 1px solid #B9B2A3; border-radius: 6px; cursor: pointer;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#12171E" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  Verify Token Handshake
+                </button>
+              </section>
+
+              <!-- Central SSO Connection Info -->
+              <section class="inst-card" style="padding: 22px; font-size: 12.5px; color: #5A6270; line-height: 1.55;">
+                <div style="font-weight: 600; color: #12171E; margin-bottom: 6px;">Single Sign-On Architecture</div>
+                This portal is connected to the Jadavpur University Central Auth server (http://localhost:8001). Sessions are backed by sliding HttpOnly credentials.
+              </section>
+
+            </div>
+
+          </div>
+
+          ${user.role === 'admin' ? `
+          <!-- Member Registry Table (Admin Inspection View) -->
+          <section class="inst-card" style="padding: 28px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <div>
+                <h3 style="margin: 0; font-family: 'Newsreader', Georgia, serif; font-size: 22px; font-weight: 600; color: #12171E;">
+                  Enrolled Laboratory Members Registry
+                </h3>
+                <div style="font-size: 13px; color: #5A6270; margin-top: 2px;">Administrator supervisory audit table</div>
+              </div>
+              <span style="font-size: 12px; font-weight: 600; color: #8A4A0F; background: #FDE8D7; border: 1px solid #D9822B; border-radius: 999px; padding: 4px 12px;">
+                Admin Oversight
+              </span>
+            </div>
+            
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13.5px;">
+                <thead>
+                  <tr style="text-align: left; font-size: 12px; color: #6B7280; border-bottom: 1px solid #ECE7DC;">
+                    <th style="padding: 10px 14px;">STUDENT MEMBER</th>
+                    <th style="padding: 10px 14px;">INSTITUTIONAL EMAIL</th>
+                    <th style="padding: 10px 14px;">TERM EXPIRY</th>
+                    <th style="padding: 10px 14px;">AUTHORITY</th>
+                    <th style="padding: 10px 14px;">STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style="border-bottom: 1px solid #ECE7DC;">
+                    <td style="padding: 12px 14px; font-weight: 600;">Rahul Sharma</td>
+                    <td class="inst-mono" style="padding: 12px 14px; color: #5A6270; font-size: 12.5px;">rahul@club.edu</td>
+                    <td style="padding: 12px 14px; color: #5A6270;">30 Jun 2027</td>
+                    <td style="padding: 12px 14px;">Research Member</td>
+                    <td style="padding: 12px 14px;"><span style="color: #1F6B3F; background: #EAF5EE; border: 1px solid #CCE6D4; padding: 3px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600;">Active</span></td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid #ECE7DC;">
+                    <td style="padding: 12px 14px; font-weight: 600;">Priya Patel</td>
+                    <td class="inst-mono" style="padding: 12px 14px; color: #5A6270; font-size: 12.5px;">priya@club.edu</td>
+                    <td style="padding: 12px 14px; color: #5A6270;">31 Mar 2027</td>
+                    <td style="padding: 12px 14px;">Student Fellow</td>
+                    <td style="padding: 12px 14px;"><span style="color: #1F6B3F; background: #EAF5EE; border: 1px solid #CCE6D4; padding: 3px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600;">Active</span></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 14px; font-weight: 600;">Pooja Sen</td>
+                    <td class="inst-mono" style="padding: 12px 14px; color: #5A6270; font-size: 12.5px;">inactive@club.edu</td>
+                    <td style="padding: 12px 14px; color: #5A6270;">Term Expired</td>
+                    <td style="padding: 12px 14px;">Past Alum</td>
+                    <td style="padding: 12px 14px;"><span style="color: #9B3A22; background: #FDF1ED; border: 1px solid #F3C7BC; padding: 3px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600;">Access Ended</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          ` : ''}
+
+        </main>
       </div>
     `;
+  }
+
+  async function testTokenHandshake() {
+    const user = await refreshToken();
+    if (user) {
+      alert("✅ Token handshake verified successfully with Central SSO server (HTTP 200 OK). User identity: " + user.name + " (" + user.email + ")");
+    }
   }
 
   function signOut() {
