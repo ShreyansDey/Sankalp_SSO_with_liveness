@@ -416,7 +416,7 @@ export default function Login() {
             {/* Clickable line: Haven't any account? Create new one */}
             <div style={{ textAlign: "center", marginTop: "14px", marginBottom: "6px" }}>
               <Link
-                to="/register"
+                to="/signup"
                 id="link-create-account"
                 style={{
                   fontSize: "14px",

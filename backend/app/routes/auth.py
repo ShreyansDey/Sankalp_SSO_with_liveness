@@ -34,9 +34,11 @@ FACES_DIR.mkdir(parents=True, exist_ok=True)
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 class SignupRequest(BaseModel):
-    invite_token: str
+    invite_token: Optional[str] = None
+    email: Optional[str] = None
     name: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
+    consent_given: Optional[bool] = True
 
 class ApplyRequest(BaseModel):
     invite_token: str
@@ -54,6 +56,7 @@ class RegisterRequest(BaseModel):
     face_photo: str = Field(..., min_length=10)  # Base64 data URL from camera snapshot or image upload
     document_base64: str = Field(..., min_length=10)  # Base64 document
     document_name: Optional[str] = "supporting_document.pdf"
+    consent_given: Optional[bool] = True
 
 class LoginRequest(BaseModel):
     email: str
@@ -314,7 +317,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             "name": new_user.name,
             "phone": new_user.phone,
             "has_document": True,
-            "status": "pending_approval"
+            "status": "pending_approval",
+            "dpdp_consent": payload.consent_given
         }
     )
 
@@ -328,30 +332,52 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/signup")
 def signup(payload: SignupRequest, db: Session = Depends(get_db)):
-    """M1/FR1: Standard signup with invite token, name and password."""
-    token_h = hash_token(payload.invite_token)
-    invite = db.query(Invite).filter(Invite.token_hash == token_h).first()
-
-    if not invite:
+    """M1/FR1: Signup with invite token or direct registration, requiring DPDP biometric consent."""
+    if not payload.invite_token and not payload.email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_invite", "message": "Invite token is invalid"}
+            detail={"error": "missing_credentials", "message": "Either invite token or email address is required"}
         )
 
-    if invite.used_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invite_used", "message": "Invite token has already been used"}
-        )
+    invite = None
+    if payload.invite_token:
+        token_h = hash_token(payload.invite_token)
+        invite = db.query(Invite).filter(Invite.token_hash == token_h).first()
 
-    if invite.expires_at < datetime.utcnow():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invite_expired", "message": "Invite token has expired"}
-        )
+        if not invite:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invalid_invite", "message": "Invite token is invalid"}
+            )
+
+        if invite.used_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invite_used", "message": "Invite token has already been used"}
+            )
+
+        if invite.expires_at < datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invite_expired", "message": "Invite token has expired"}
+            )
+
+        email_to_use = invite.email
+        role_to_use = invite.role
+        term_end_to_use = invite.term_end
+    else:
+        email_clean = payload.email.strip().lower()
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", email_clean):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invalid_email", "message": "Please provide a valid email address"}
+            )
+        email_to_use = email_clean
+        role_to_use = "member"
+        term_end_to_use = None
 
     # Check if user already exists
-    existing = db.query(User).filter(User.email == invite.email).first()
+    existing = db.query(User).filter(func.lower(User.email) == email_to_use.lower()).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -359,20 +385,23 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         )
 
     # Create new active user
+    user_id = str(uuid.uuid4())
     new_user = User(
-        email=invite.email,
-        name=payload.name,
+        id=user_id,
+        email=email_to_use,
+        name=payload.name.strip(),
         password_hash=hash_password(payload.password),
-        role=invite.role,
+        role=role_to_use,
         status="active",
-        term_end=invite.term_end,
+        term_end=term_end_to_use,
         created_at=datetime.utcnow(),
         last_active_at=datetime.utcnow()
     )
     db.add(new_user)
     
-    # Mark invite as used
-    invite.used_at = datetime.utcnow()
+    # Mark invite as used if applicable
+    if invite:
+        invite.used_at = datetime.utcnow()
     db.commit()
     db.refresh(new_user)
 
@@ -381,7 +410,12 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         action="signup",
         actor_id=new_user.id,
         target_id=new_user.id,
-        detail={"email": new_user.email, "role": new_user.role}
+        detail={
+            "email": new_user.email,
+            "role": new_user.role,
+            "dpdp_consent": payload.consent_given,
+            "mode": "invite" if invite else "self_service"
+        }
     )
 
     # Next step is liveness check before session creation
