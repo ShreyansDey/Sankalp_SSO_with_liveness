@@ -35,26 +35,24 @@ export default function Signout() {
   }, []);
 
   return (
-    <div style={{
+    <div className="auth-split-layout" style={{
       minHeight: "100vh",
-      display: "flex",
-      flexWrap: "wrap",
       fontFamily: "'Inter', system-ui, sans-serif",
       color: "#12171E",
       background: "#F3EFE7"
     }}>
       {/* LEFT: Brand Panel */}
-      <div style={{
+      <div className="auth-brand-panel" style={{
         flex: "1 1 440px",
-        minWidth: "320px",
+        minWidth: "min(100%, 320px)",
         background: "#12171E",
         color: "#E9E4D8",
         boxSizing: "border-box",
-        padding: "48px 64px",
+        padding: "clamp(24px, 4vw, 48px) clamp(20px, 4vw, 64px)",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        gap: "48px"
+        gap: "32px"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -90,11 +88,11 @@ export default function Signout() {
       </div>
 
       {/* RIGHT: Confirmation Details */}
-      <div style={{
+      <div className="auth-form-panel" style={{
         flex: "1 1 520px",
-        minWidth: "320px",
+        minWidth: "min(100%, 320px)",
         boxSizing: "border-box",
-        padding: "40px 48px",
+        padding: "clamp(24px, 4vw, 40px) clamp(20px, 4vw, 48px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center"

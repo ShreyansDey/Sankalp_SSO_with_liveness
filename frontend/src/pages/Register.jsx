@@ -17,6 +17,36 @@ import { apiRequest } from "../api";
  * ==============================================================================
  */
 
+/**
+ * Supported Countries with international dial codes and exact national digit lengths
+ */
+const COUNTRIES = [
+  { code: "IN", name: "India", dialCode: "+91", digits: 10, placeholder: "98765 43210" },
+  { code: "US", name: "United States", dialCode: "+1", digits: 10, placeholder: "202 555 0123" },
+  { code: "GB", name: "United Kingdom", dialCode: "+44", digits: 10, placeholder: "7911 123456" },
+  { code: "CA", name: "Canada", dialCode: "+1", digits: 10, placeholder: "416 555 0199" },
+  { code: "AU", name: "Australia", dialCode: "+61", digits: 9, placeholder: "412 345 678" },
+  { code: "DE", name: "Germany", dialCode: "+49", digits: 10, placeholder: "151 2345678" },
+  { code: "FR", name: "France", dialCode: "+33", digits: 9, placeholder: "612 345 678" },
+  { code: "AE", name: "United Arab Emirates", dialCode: "+971", digits: 9, placeholder: "50 123 4567" },
+  { code: "SG", name: "Singapore", dialCode: "+65", digits: 8, placeholder: "8123 4567" },
+  { code: "JP", name: "Japan", dialCode: "+81", digits: 10, placeholder: "90 1234 5678" },
+  { code: "BD", name: "Bangladesh", dialCode: "+880", digits: 10, placeholder: "1712 345678" },
+  { code: "NP", name: "Nepal", dialCode: "+977", digits: 10, placeholder: "984 1234567" },
+  { code: "LK", name: "Sri Lanka", dialCode: "+94", digits: 9, placeholder: "71 234 5678" },
+  { code: "PK", name: "Pakistan", dialCode: "+92", digits: 10, placeholder: "301 2345678" },
+  { code: "SA", name: "Saudi Arabia", dialCode: "+966", digits: 9, placeholder: "50 123 4567" },
+  { code: "MY", name: "Malaysia", dialCode: "+60", digits: 10, placeholder: "12 345 6789" },
+  { code: "NZ", name: "New Zealand", dialCode: "+64", digits: 9, placeholder: "21 123 4567" },
+  { code: "ZA", name: "South Africa", dialCode: "+27", digits: 9, placeholder: "82 123 4567" },
+  { code: "BR", name: "Brazil", dialCode: "+55", digits: 11, placeholder: "11 91234 5678" },
+  { code: "NG", name: "Nigeria", dialCode: "+234", digits: 10, placeholder: "802 123 4567" },
+  { code: "ID", name: "Indonesia", dialCode: "+62", digits: 10, placeholder: "812 3456 7890" },
+  { code: "RU", name: "Russia", dialCode: "+7", digits: 10, placeholder: "912 345 6789" },
+  { code: "IT", name: "Italy", dialCode: "+39", digits: 10, placeholder: "312 345 6789" },
+  { code: "ES", name: "Spain", dialCode: "+34", digits: 9, placeholder: "612 345 678" }
+];
+
 export default function Register() {
   const navigate = useNavigate();
 
@@ -30,9 +60,35 @@ export default function Register() {
   // Form states
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [selectedCountryCode, setSelectedCountryCode] = useState("IN");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  const selectedCountry = COUNTRIES.find((c) => c.code === selectedCountryCode) || COUNTRIES[0];
+
+  const handleCountryChange = (e) => {
+    const newCode = e.target.value;
+    setSelectedCountryCode(newCode);
+    const country = COUNTRIES.find((c) => c.code === newCode) || COUNTRIES[0];
+    if (phoneNumber.length > country.digits) {
+      setPhoneNumber(phoneNumber.slice(0, country.digits));
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    // Strictly numeric: strip out any text or letters immediately
+    const digitsOnly = e.target.value.replace(/\D/g, "");
+    if (digitsOnly.length <= selectedCountry.digits) {
+      setPhoneNumber(digitsOnly);
+    }
+  };
+
+  const handleFullNameChange = (e) => {
+    // Strictly letters and spaces: strip out any digits or numbers immediately
+    const lettersOnly = e.target.value.replace(/[^a-zA-Z\s'.\-]/g, "");
+    setFullName(lettersOnly);
+  };
 
   // Recent Clicked Image (Camera capture or photo upload)
   const [facePhoto, setFacePhoto] = useState(""); // Base64 data URL
@@ -303,12 +359,28 @@ export default function Register() {
       setError("Full Name is compulsory.");
       return;
     }
+    if (/\d/.test(fullName)) {
+      setError("Full Name cannot contain numbers. Please enter your name using letters only.");
+      return;
+    }
+    if (fullName.trim().length < 2) {
+      setError("Please enter your complete legal name.");
+      return;
+    }
     if (!email.trim() || !email.includes("@")) {
       setError("A valid Email Address is compulsory.");
       return;
     }
-    if (!phone.trim()) {
-      setError("Phone Number is compulsory.");
+    if (!phoneNumber.trim()) {
+      setError(`Phone Number is compulsory. Please enter your ${selectedCountry.digits}-digit phone number.`);
+      return;
+    }
+    if (!/^\d+$/.test(phoneNumber)) {
+      setError("Phone Number can only contain numeric digits.");
+      return;
+    }
+    if (phoneNumber.length !== selectedCountry.digits) {
+      setError(`Phone number for ${selectedCountry.name} must be exactly ${selectedCountry.digits} digits (you entered ${phoneNumber.length} digits).`);
       return;
     }
     if (!password || password.length < 8) {
@@ -338,13 +410,15 @@ export default function Register() {
     setError(null);
     setLoading(true);
 
+    const fullPhoneNumber = `${selectedCountry.dialCode} ${phoneNumber.trim()}`;
+
     try {
       const res = await apiRequest("/auth/register", {
         method: "POST",
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           name: fullName.trim(),
-          phone: phone.trim(),
+          phone: fullPhoneNumber,
           password,
           face_photo: facePhoto,
           document_base64: documentBase64,
@@ -356,7 +430,7 @@ export default function Register() {
       setSubmittedData({
         name: fullName.trim(),
         email: email.trim().toLowerCase(),
-        phone: phone.trim(),
+        phone: fullPhoneNumber,
         documentName: documentName || "Document attached",
         facePhoto: facePhoto
       });
@@ -385,7 +459,8 @@ export default function Register() {
   const fillDemoData = () => {
     setFullName("Tanmay Bhattacharya");
     setEmail("tanmay.bhatt@jadavpur.edu");
-    setPhone("+91 98301 23456");
+    setSelectedCountryCode("IN");
+    setPhoneNumber("9830123456");
     setPassword("DemoPass123!");
 
     // Generate a clean dummy face snapshot (200x200 canvas with avatar)
@@ -715,7 +790,7 @@ export default function Register() {
                   required
                   placeholder="Rahul Sharma"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={handleFullNameChange}
                   style={{
                     width: "100%",
                     height: "40px",
@@ -727,29 +802,105 @@ export default function Register() {
                     boxSizing: "border-box"
                   }}
                 />
+                <div style={{ fontSize: "11px", color: "#5A6270", marginTop: "3px" }}>
+                  Letters only (no numbers allowed)
+                </div>
               </div>
 
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
                   Phone Number <span style={{ color: "#DC2626" }}>*</span>
                 </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="+91 98765 43210"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  style={{
-                    width: "100%",
-                    height: "40px",
-                    padding: "0 12px",
-                    borderRadius: "7px",
-                    border: "1px solid #C4BCAF",
-                    background: "#FDFBF7",
-                    fontSize: "13.5px",
-                    boxSizing: "border-box"
-                  }}
-                />
+                <div style={{
+                  display: "flex",
+                  alignItems: "stretch",
+                  width: "100%",
+                  borderRadius: "7px",
+                  border: "1px solid #C4BCAF",
+                  background: "#FDFBF7",
+                  overflow: "hidden",
+                  boxSizing: "border-box"
+                }}>
+                  {/* Country Selector Dropdown with Down Arrow */}
+                  <div style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    background: "#EBE5D8",
+                    borderRight: "1px solid #C4BCAF",
+                    flexShrink: 0
+                  }}>
+                    <select
+                      value={selectedCountryCode}
+                      onChange={handleCountryChange}
+                      aria-label="Select country dial code"
+                      style={{
+                        appearance: "none",
+                        WebkitAppearance: "none",
+                        MozAppearance: "none",
+                        border: "none",
+                        background: "transparent",
+                        padding: "0 22px 0 10px",
+                        height: "40px",
+                        fontSize: "12.5px",
+                        fontWeight: 600,
+                        color: "#12171E",
+                        cursor: "pointer",
+                        outline: "none"
+                      }}
+                    >
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.dialCode} ({c.name})
+                        </option>
+                      ))}
+                    </select>
+                    {/* Visual down arrow indicator */}
+                    <span style={{
+                      position: "absolute",
+                      right: "6px",
+                      pointerEvents: "none",
+                      fontSize: "9px",
+                      color: "#5A6270"
+                    }}>
+                      &#9660;
+                    </span>
+                  </div>
+
+                  {/* Digits-only telephone input with exact country length */}
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    required
+                    placeholder={`${selectedCountry.placeholder}`}
+                    value={phoneNumber}
+                    onChange={handlePhoneChange}
+                    maxLength={selectedCountry.digits}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      height: "40px",
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      padding: "0 12px",
+                      fontSize: "13.5px",
+                      color: "#12171E"
+                    }}
+                  />
+                </div>
+                {/* Character/digit counter & helper */}
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "11px",
+                  color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270",
+                  marginTop: "3px"
+                }}>
+                  <span>Numbers only ({selectedCountry.name})</span>
+                  <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
+                </div>
               </div>
             </div>
 
@@ -879,11 +1030,11 @@ export default function Register() {
                   {/* Face outline guide */}
                   <div style={{
                     position: "absolute",
-                    top: "15%",
+                    top: "10%",
                     left: "50%",
                     transform: "translateX(-50%)",
-                    width: "130px",
-                    height: "170px",
+                    width: "120px",
+                    height: "150px",
                     borderRadius: "50%",
                     border: "2px dashed #D9822B",
                     pointerEvents: "none"
@@ -892,7 +1043,8 @@ export default function Register() {
                     position: "absolute",
                     bottom: "10px",
                     display: "flex",
-                    gap: "8px"
+                    gap: "8px",
+                    zIndex: 2
                   }}>
                     <button
                       type="button"
@@ -936,6 +1088,7 @@ export default function Register() {
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: "8px",
+                    flexWrap: "wrap",
                     background: "#EBE5D8",
                     border: "1px solid #C4BCAF",
                     borderRadius: "7px",
@@ -950,8 +1103,8 @@ export default function Register() {
                       value={selectedDeviceId}
                       onChange={(e) => switchCamera(e.target.value)}
                       style={{
-                        flex: 1,
-                        maxWidth: "260px",
+                        flex: "1 1 180px",
+                        maxWidth: "100%",
                         height: "28px",
                         padding: "0 6px",
                         borderRadius: "4px",
@@ -984,6 +1137,7 @@ export default function Register() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: "8px",
+                  flexWrap: "wrap",
                   background: "#FBF9F4",
                   border: "1px solid #DDD6C7",
                   borderRadius: "6px",
@@ -997,8 +1151,8 @@ export default function Register() {
                     value={selectedDeviceId}
                     onChange={(e) => switchCamera(e.target.value)}
                     style={{
-                      flex: 1,
-                      maxWidth: "260px",
+                      flex: "1 1 180px",
+                      maxWidth: "100%",
                       height: "28px",
                       padding: "0 6px",
                       borderRadius: "4px",
@@ -1302,7 +1456,7 @@ export default function Register() {
               )}
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: "#12171E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fullName}</div>
-                <div style={{ color: "#5A6270", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email} &bull; {phone}</div>
+                <div style={{ color: "#5A6270", fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email} &bull; {selectedCountry.dialCode} {phoneNumber}</div>
               </div>
             </div>
             <div className="summary-box-right">

@@ -700,24 +700,24 @@ export default function Liveness() {
         maxWidth: "1100px",
         margin: "0 auto",
         boxSizing: "border-box",
-        padding: "8px 48px 48px",
+        padding: "clamp(8px, 3vw, 24px) clamp(12px, 4vw, 48px) 48px",
         display: "flex",
         flexDirection: "column",
         gap: "24px"
       }}>
-        <div style={{
+        <div className="liveness-card-box" style={{
           display: "flex",
           flexWrap: "wrap",
-          gap: "48px",
+          gap: "clamp(16px, 4vw, 48px)",
           alignItems: "center",
           background: "#FBF9F4",
           border: "1px solid #DDD6C7",
           borderRadius: "20px",
-          padding: "40px"
+          padding: "clamp(16px, 4vw, 40px)"
         }}>
 
           {/* LEFT: Camera Viewport */}
-          <div style={{ flex: "1 1 400px", minWidth: "300px" }}>
+          <div className="liveness-camera-container" style={{ flex: "1 1 400px", minWidth: "min(100%, 280px)", width: "100%" }}>
             <div style={{
               position: "relative",
               width: "100%",
@@ -826,7 +826,7 @@ export default function Liveness() {
           </div>
 
           {/* RIGHT: Status & Instructions */}
-          <div style={{ flex: "1 1 360px", minWidth: "300px", display: "flex", flexDirection: "column", gap: "24px" }}>
+          <div className="liveness-instructions-container" style={{ flex: "1 1 360px", minWidth: "min(100%, 280px)", width: "100%", display: "flex", flexDirection: "column", gap: "24px" }}>
 
             {/* VIEW 1: CHECKING IN PROGRESS */}
             {(status === "waiting_action" || status === "camera_connecting") && (
@@ -839,8 +839,8 @@ export default function Liveness() {
                     margin: 0,
                     fontFamily: "'Newsreader', Georgia, serif",
                     fontWeight: 500,
-                    fontSize: "48px",
-                    lineHeight: 1.05,
+                    fontSize: "clamp(26px, 6vw, 44px)",
+                    lineHeight: 1.1,
                     color: "#12171E"
                   }}>
                     {getStepHeadline()}
@@ -1005,8 +1005,8 @@ export default function Liveness() {
                     margin: 0,
                     fontFamily: "'Newsreader', Georgia, serif",
                     fontWeight: 500,
-                    fontSize: "48px",
-                    lineHeight: 1.05,
+                    fontSize: "clamp(26px, 6vw, 44px)",
+                    lineHeight: 1.1,
                     color: "#12171E"
                   }}>
                     You are verified
@@ -1061,8 +1061,8 @@ export default function Liveness() {
                     margin: 0,
                     fontFamily: "'Newsreader', Georgia, serif",
                     fontWeight: 500,
-                    fontSize: "44px",
-                    lineHeight: 1.08,
+                    fontSize: "clamp(24px, 5.5vw, 40px)",
+                    lineHeight: 1.1,
                     color: "#12171E"
                   }}>
                     We could not confirm that
