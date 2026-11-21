@@ -740,7 +740,7 @@ export default function Register() {
       {/* Main Registration Card */}
       <main style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 14px" }}>
         <div className="auth-card" style={{
-          maxWidth: step === "consent" ? "680px" : "520px",
+          maxWidth: step === "consent" ? "680px" : "600px",
         }}>
           {/* Stepper Indicator */}
           <ol className="stepper-list">
@@ -912,46 +912,47 @@ export default function Register() {
               </div>
             )}
 
-            {/* 1. Full Name & Phone Number */}
-            <div className={mode === "direct" ? "form-grid-2col" : ""}>
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
-                  Full Name <span style={{ color: "#DC2626" }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Rahul Sharma"
-                  value={fullName}
-                  onChange={handleFullNameChange}
-                  onKeyDown={(e) => {
-                    if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                      setNameWarning("Numbers are not permitted in Full Name. Letters only.");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    height: "40px",
-                    padding: "0 12px",
-                    borderRadius: "7px",
-                    border: nameWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
-                    background: "#FDFBF7",
-                    fontSize: "13.5px",
-                    boxSizing: "border-box"
-                  }}
-                />
-                {nameWarning ? (
-                  <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
-                    [!] {nameWarning}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: "11px", color: "#5A6270", marginTop: "3px" }}>
-                    Letters only (no numbers allowed)
-                  </div>
-                )}
-              </div>
+            {/* 1. Full Name */}
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                Full Name <span style={{ color: "#DC2626" }}>*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Rahul Sharma"
+                value={fullName}
+                onChange={handleFullNameChange}
+                onKeyDown={(e) => {
+                  if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    setNameWarning("Numbers are not permitted in Full Name. Letters only.");
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  height: "42px",
+                  padding: "0 14px",
+                  borderRadius: "7px",
+                  border: nameWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
+                  background: "#FDFBF7",
+                  fontSize: "14px",
+                  boxSizing: "border-box"
+                }}
+              />
+              {nameWarning ? (
+                <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
+                  [!] {nameWarning}
+                </div>
+              ) : (
+                <div style={{ fontSize: "11px", color: "#5A6270", marginTop: "3px" }}>
+                  Letters only (no numbers allowed)
+                </div>
+              )}
+            </div>
 
-              {mode === "direct" && (
+            {/* 2. Phone Number & Email Address (Side-by-side or stacked clean) */}
+            {mode === "direct" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
                     Phone Number <span style={{ color: "#DC2626" }}>*</span>
@@ -985,9 +986,9 @@ export default function Register() {
                           MozAppearance: "none",
                           border: "none",
                           background: "transparent",
-                          padding: "0 22px 0 10px",
-                          height: "40px",
-                          fontSize: "12.5px",
+                          padding: "0 22px 0 12px",
+                          height: "42px",
+                          fontSize: "13px",
                           fontWeight: 600,
                           color: "#12171E",
                           cursor: "pointer",
@@ -1030,12 +1031,12 @@ export default function Register() {
                       style={{
                         flex: 1,
                         minWidth: 0,
-                        height: "40px",
+                        height: "42px",
                         border: "none",
                         outline: "none",
                         background: "transparent",
-                        padding: "0 12px",
-                        fontSize: "13.5px",
+                        padding: "0 14px",
+                        fontSize: "14px",
                         color: "#12171E"
                       }}
                     />
@@ -1058,32 +1059,29 @@ export default function Register() {
                     </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* 2. Email Address (Only in Direct Mode; in Invite Mode email comes from the token) */}
-            {mode === "direct" && (
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
-                  Email Address <span style={{ color: "#DC2626" }}>*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="you@college.edu"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  style={{
-                    width: "100%",
-                    height: "40px",
-                    padding: "0 12px",
-                    borderRadius: "7px",
-                    border: "1px solid #C4BCAF",
-                    background: "#FDFBF7",
-                    fontSize: "13.5px",
-                    boxSizing: "border-box"
-                  }}
-                />
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                    Email Address <span style={{ color: "#DC2626" }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="you@college.edu"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    style={{
+                      width: "100%",
+                      height: "42px",
+                      padding: "0 14px",
+                      borderRadius: "7px",
+                      border: "1px solid #C4BCAF",
+                      background: "#FDFBF7",
+                      fontSize: "14px",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                </div>
               </div>
             )}
 
