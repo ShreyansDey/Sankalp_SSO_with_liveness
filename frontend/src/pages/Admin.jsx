@@ -7,6 +7,7 @@ import AdminRenewalsTab from "../components/admin/AdminRenewalsTab";
 import AdminInvitesTab from "../components/admin/AdminInvitesTab";
 import AdminCleanupTab from "../components/admin/AdminCleanupTab";
 import AdminAuditTab from "../components/admin/AdminAuditTab";
+import AdminFaceLockTab from "../components/admin/AdminFaceLockTab";
 
 /**
  * ==============================================================================
@@ -53,6 +54,11 @@ export default function Admin() {
   const [cleanupResult, setCleanupResult] = useState(null);
   const [cleaning, setCleaning] = useState(false);
 
+  // Biometric Face Lock state
+  const [faceProfiles, setFaceProfiles] = useState([]);
+  const [requireFaceMatch, setRequireFaceMatch] = useState(false);
+  const [loadingFaces, setLoadingFaces] = useState(false);
+
   useEffect(() => {
     loadInitialData();
 
@@ -79,10 +85,68 @@ export default function Admin() {
       await fetchInvites();
       await fetchRenewals();
       await fetchAudit();
+      await fetchFaceProfiles();
     } catch {
       navigate("/login", { replace: true });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchFaceProfiles = async () => {
+    try {
+      setLoadingFaces(true);
+      const data = await apiRequest("/admin/face-profiles");
+      setFaceProfiles(Array.isArray(data.faces) ? data.faces : []);
+      setRequireFaceMatch(Boolean(data.require_face_match));
+    } catch {
+      setFaceProfiles([]);
+    } finally {
+      setLoadingFaces(false);
+    }
+  };
+
+  const handleToggleFaceRestriction = async (enforce) => {
+    try {
+      setStatusMessage(null);
+      setErrorMessage(null);
+      const res = await apiRequest("/admin/face-profiles/toggle-restriction", {
+        method: "POST",
+        body: JSON.stringify({ enforce })
+      });
+      setRequireFaceMatch(Boolean(res.require_face_match));
+      setStatusMessage(res.message || "Face restriction setting updated.");
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to toggle face restriction");
+    }
+  };
+
+  const handleAddFaceProfile = async (label, photoBase64) => {
+    setStatusMessage(null);
+    setErrorMessage(null);
+    const res = await apiRequest("/admin/face-profiles", {
+      method: "POST",
+      body: JSON.stringify({ label, face_photo: photoBase64 })
+    });
+    setStatusMessage(res.message || "Face profile enrolled successfully.");
+    await fetchFaceProfiles();
+    await fetchAudit();
+  };
+
+  const handleDeleteFaceProfile = async (faceId) => {
+    if (!window.confirm("Remove this authorized administrator face profile?")) return;
+    try {
+      setStatusMessage(null);
+      setErrorMessage(null);
+      const res = await apiRequest(`/admin/face-profiles/${faceId}`, {
+        method: "DELETE"
+      });
+      setStatusMessage(res.message || "Authorized face profile removed.");
+      await fetchFaceProfiles();
+      await fetchAudit();
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to remove face profile");
     }
   };
 
@@ -569,6 +633,38 @@ export default function Admin() {
           >
             Automated Cleanup
           </button>
+
+          <button
+            onClick={() => setActiveTab("facelock")}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: activeTab === "facelock" ? "#E4DDCF" : "transparent",
+              fontSize: "15px",
+              fontWeight: activeTab === "facelock" ? 600 : 500,
+              color: activeTab === "facelock" ? "#12171E" : "#4A5260",
+              border: "none",
+              textAlign: "left",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between"
+            }}
+          >
+            <span>Biometric Face Lock</span>
+            {requireFaceMatch && (
+              <span style={{
+                background: "#1F6B3F",
+                color: "#FFFFFF",
+                fontSize: "10px",
+                fontWeight: 700,
+                borderRadius: "999px",
+                padding: "2px 7px"
+              }}>
+                ACTIVE
+              </span>
+            )}
+          </button>
         </nav>
 
         {/* MAIN ADMIN WORK AREA */}
@@ -668,6 +764,19 @@ export default function Admin() {
             <AdminCleanupTab
               cleaning={cleaning}
               onRunCleanup={handleRunCleanup}
+            />
+          )}
+
+          {/* TAB: BIOMETRIC FACE LOCK */}
+          {activeTab === "facelock" && (
+            <AdminFaceLockTab
+              faceProfiles={faceProfiles}
+              requireFaceMatch={requireFaceMatch}
+              onToggleRestriction={handleToggleFaceRestriction}
+              onAddFace={handleAddFaceProfile}
+              onDeleteFace={handleDeleteFaceProfile}
+              loading={loadingFaces}
+              onPreviewImage={setPreviewImage}
             />
           )}
         </main>

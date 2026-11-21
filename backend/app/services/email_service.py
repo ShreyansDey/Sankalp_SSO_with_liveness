@@ -236,6 +236,85 @@ def send_password_reset_email(
         return send_email(to_email, subject, text_content, html_content)
 
 
+def build_login_alert_email(name: str, ip: str, user_agent: str, time_str: str) -> tuple[str, str]:
+    """Generate email templates for login security alerts."""
+    greeting = name.strip() if name and name.strip() else "User"
+    text_content = f"""Hello {greeting},
+
+Security Notice: A new sign-in was detected on your Real Access account.
+
+Details:
+- Time: {time_str} UTC
+- IP Address: {ip}
+- Device / Browser: {user_agent}
+
+If this was you, no action is needed.
+If you did not authorize this login, please contact your administrator or reset your password immediately.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Security Alert: New Sign-in</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #12171E;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2DCCF; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background-color: #12171E; padding: 24px 32px;">
+              <span style="color: #F5F1E8; font-size: 20px; font-weight: 600; font-family: Georgia, serif;">Real Access</span>
+              <span style="color: #D9822B; font-size: 11px; font-weight: 700; margin-left: 8px; letter-spacing: 1.5px; text-transform: uppercase;">SECURITY ALERT</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 36px;">
+              <h2 style="margin: 0 0 16px; font-size: 20px; font-family: Georgia, serif; color: #12171E;">New Sign-In Detected</h2>
+              <p style="color: #5A6270; font-size: 15px; line-height: 1.55; margin: 0 0 20px;">
+                Hello <strong>{greeting}</strong>, your account just completed a successful camera liveness login.
+              </p>
+              <div style="background-color: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13.5px; color: #3A4250;">
+                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str} UTC</p>
+                <p style="margin: 4px 0;"><strong>IP Address:</strong> {ip}</p>
+                <p style="margin: 4px 0; word-break: break-all;"><strong>Device:</strong> {user_agent}</p>
+              </div>
+              <p style="color: #8A92A0; font-size: 12px; margin: 20px 0 0; line-height: 1.5; border-top: 1px solid #EAE5D9; padding-top: 16px;">
+                If this was you, you can safely ignore this alert.<br/>
+                If you did not perform this login, please contact an administrator immediately.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return text_content, html_content
+
+
+def send_login_alert_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
+    """Dispatches login security alert email asynchronously."""
+    time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    subject = "Security Alert: New Sign-in to Real Access"
+    text_content, html_content = build_login_alert_email(name, ip, user_agent, time_str)
+    if background:
+        thread = threading.Thread(
+            target=send_email,
+            args=(to_email, subject, text_content, html_content),
+            daemon=True
+        )
+        thread.start()
+        logger.info("Dispatched login alert email to %s", to_email)
+        return True
+    else:
+        return send_email(to_email, subject, text_content, html_content)
+
+
+
 def build_invite_email(email: str, invite_link: str, role: str) -> tuple[str, str]:
     """Generate both plain-text and HTML formatted invitation templates."""
     text_content = f"""Hello,
@@ -315,6 +394,85 @@ def send_invite_email(to_email: str, invite_link: str, role: str = "member", bac
         return True
     else:
         return send_email(to_email, subject, text_content, html_content)
+
+
+def build_login_alert_email(name: str, ip: str, user_agent: str, time_str: str) -> tuple[str, str]:
+    """Generate email templates for login security alerts."""
+    greeting = name.strip() if name and name.strip() else "User"
+    text_content = f"""Hello {greeting},
+
+Security Notice: A new sign-in was detected on your Real Access account.
+
+Details:
+- Time: {time_str} UTC
+- IP Address: {ip}
+- Device / Browser: {user_agent}
+
+If this was you, no action is needed.
+If you did not authorize this login, please contact your administrator or reset your password immediately.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Security Alert: New Sign-in</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #12171E;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2DCCF; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background-color: #12171E; padding: 24px 32px;">
+              <span style="color: #F5F1E8; font-size: 20px; font-weight: 600; font-family: Georgia, serif;">Real Access</span>
+              <span style="color: #D9822B; font-size: 11px; font-weight: 700; margin-left: 8px; letter-spacing: 1.5px; text-transform: uppercase;">SECURITY ALERT</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 36px;">
+              <h2 style="margin: 0 0 16px; font-size: 20px; font-family: Georgia, serif; color: #12171E;">New Sign-In Detected</h2>
+              <p style="color: #5A6270; font-size: 15px; line-height: 1.55; margin: 0 0 20px;">
+                Hello <strong>{greeting}</strong>, your account just completed a successful camera liveness login.
+              </p>
+              <div style="background-color: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13.5px; color: #3A4250;">
+                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str} UTC</p>
+                <p style="margin: 4px 0;"><strong>IP Address:</strong> {ip}</p>
+                <p style="margin: 4px 0; word-break: break-all;"><strong>Device:</strong> {user_agent}</p>
+              </div>
+              <p style="color: #8A92A0; font-size: 12px; margin: 20px 0 0; line-height: 1.5; border-top: 1px solid #EAE5D9; padding-top: 16px;">
+                If this was you, you can safely ignore this alert.<br/>
+                If you did not perform this login, please contact an administrator immediately.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return text_content, html_content
+
+
+def send_login_alert_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
+    """Dispatches login security alert email asynchronously."""
+    time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    subject = "Security Alert: New Sign-in to Real Access"
+    text_content, html_content = build_login_alert_email(name, ip, user_agent, time_str)
+    if background:
+        thread = threading.Thread(
+            target=send_email,
+            args=(to_email, subject, text_content, html_content),
+            daemon=True
+        )
+        thread.start()
+        logger.info("Dispatched login alert email to %s", to_email)
+        return True
+    else:
+        return send_email(to_email, subject, text_content, html_content)
+
 
 
 def build_mark_as_left_email(name: str, renew_url: str) -> tuple[str, str]:

@@ -1,6 +1,7 @@
 import os
 import uuid
 import base64
+from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -27,13 +28,19 @@ from app.services.email_service import (
 )
 from app.services.face_engine import extract_face_embedding
 
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+FACES_DIR = UPLOAD_DIR / "faces"
+FACES_DIR.mkdir(parents=True, exist_ok=True)
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 from app.schemas.admin import (
     CreateInviteRequest,
     DisableRequest,
     CreateProductRequest,
-    RenewalActionRequest
+    RenewalActionRequest,
+    AddAdminFaceRequest,
+    ToggleRestrictionRequest
 )
 
 @router.post("/invites")
@@ -65,7 +72,7 @@ def create_invite(
         detail={"email": payload.email, "role": payload.role}
     )
 
-    invite_url = f"{FRONTEND_ORIGIN}/signup?token={raw_token}"
+    invite_url = f"{FRONTEND_ORIGIN}/register?token={raw_token}"
     
     # Automatically send the invitation email to the receiver
     send_invite_email(payload.email, invite_url, payload.role)
@@ -794,3 +801,169 @@ def decline_renewal_request(
         "status": "ok",
         "message": f"Renewal request for {req.email} has been declined."
     }
+
+@router.get("/face-profiles")
+def get_admin_face_profiles(
+    admin: User = Depends(require_admin_user)
+):
+    """List enrolled administrator face profiles and restriction status."""
+    faces = admin.admin_faces if isinstance(admin.admin_faces, list) else []
+    return {
+        "require_face_match": bool(admin.require_face_match),
+        "faces": [
+            {
+                "id": f.get("id"),
+                "label": f.get("label", "Admin Profile"),
+                "photo_url": f"/admin/files/face-profile/{f.get('id')}",
+                "created_at": f.get("created_at")
+            }
+            for f in faces if isinstance(f, dict)
+        ]
+    }
+
+@router.post("/face-profiles")
+def add_admin_face_profile(
+    payload: AddAdminFaceRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """Enroll a new authorized administrator face profile with 128D embedding vector."""
+    if not payload.face_photo:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "missing_photo", "message": "Face photo is required"})
+
+    embedding = extract_face_embedding(payload.face_photo)
+    if embedding is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "face_not_detected",
+                "message": "Could not detect a clear human face in the photo. Please ensure face is well-lit and centered."
+            }
+        )
+
+    face_id = str(uuid.uuid4())
+    face_filename = f"admin_{face_id}.jpg"
+    face_path = FACES_DIR / face_filename
+
+    try:
+        if "," in payload.face_photo:
+            _, raw_b64 = payload.face_photo.split(",", 1)
+        else:
+            raw_b64 = payload.face_photo
+        with open(face_path, "wb") as f:
+            f.write(base64.b64decode(raw_b64))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_photo", "message": "Failed to decode the face image."}
+        )
+
+    new_profile = {
+        "id": face_id,
+        "label": payload.label.strip() or "Admin Face",
+        "embedding": embedding,
+        "photo_filename": face_filename,
+        "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
+    current_faces.append(new_profile)
+    admin.admin_faces = current_faces
+    if not admin.face_embedding:
+        admin.face_embedding = embedding
+    
+    # Automatically enable face match restriction upon enrolling face
+    admin.require_face_match = True
+
+    db.commit()
+    db.refresh(admin)
+
+    log_audit(
+        db,
+        action="admin_face_enrolled",
+        actor_id=admin.id,
+        target_id=admin.id,
+        detail={"face_id": face_id, "label": new_profile["label"]}
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Authorized face profile '{new_profile['label']}' enrolled successfully.",
+        "face": {
+            "id": face_id,
+            "label": new_profile["label"],
+            "photo_url": f"/admin/files/face-profile/{face_id}",
+            "created_at": new_profile["created_at"]
+        },
+        "require_face_match": admin.require_face_match
+    }
+
+@router.delete("/face-profiles/{face_id}")
+def delete_admin_face_profile(
+    face_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """Remove an enrolled administrator face profile."""
+    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
+    updated_faces = [f for f in current_faces if isinstance(f, dict) and f.get("id") != face_id]
+    
+    admin.admin_faces = updated_faces
+    if not updated_faces:
+        admin.require_face_match = False
+        admin.face_embedding = None
+    elif admin.face_embedding and not any(f.get("embedding") == admin.face_embedding for f in updated_faces):
+        admin.face_embedding = updated_faces[0].get("embedding")
+
+    db.commit()
+    db.refresh(admin)
+
+    log_audit(
+        db,
+        action="admin_face_deleted",
+        actor_id=admin.id,
+        target_id=admin.id,
+        detail={"face_id": face_id}
+    )
+
+    return {
+        "status": "ok",
+        "message": "Authorized face profile removed.",
+        "require_face_match": admin.require_face_match
+    }
+
+@router.post("/face-profiles/toggle-restriction")
+def toggle_admin_face_restriction(
+    payload: ToggleRestrictionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """Enable or disable biometric face lock requirement for admin sign-in."""
+    admin.require_face_match = payload.enforce
+    db.commit()
+    db.refresh(admin)
+
+    log_audit(
+        db,
+        action="admin_face_restriction_toggled",
+        actor_id=admin.id,
+        target_id=admin.id,
+        detail={"require_face_match": admin.require_face_match}
+    )
+
+    return {
+        "status": "ok",
+        "require_face_match": admin.require_face_match,
+        "message": f"Biometric face lock {'enforced' if admin.require_face_match else 'disabled'} for administrator logins."
+    }
+
+@router.get("/files/face-profile/{face_id}")
+def get_admin_face_photo(
+    face_id: str,
+    admin: User = Depends(require_admin_user)
+):
+    """Serve enrolled administrator profile snapshot."""
+    file_path = FACES_DIR / f"admin_{face_id}.jpg"
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Face portrait not found")
+    return FileResponse(file_path, media_type="image/jpeg")

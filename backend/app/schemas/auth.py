@@ -29,6 +29,7 @@ class RegisterRequest(BaseModel):
     document_base64: str = Field(..., min_length=10)  # Base64 document
     document_name: Optional[str] = "supporting_document.pdf"
     consent_given: Optional[bool] = True
+    invite_token: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str

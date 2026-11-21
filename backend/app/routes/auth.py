@@ -44,6 +44,22 @@ from app.schemas.auth import (
     SubmitRenewalRequest
 )
 
+@router.get("/invite-info")
+def get_invite_info(token: str, db: Session = Depends(get_db)):
+    """Fetches public invite metadata (email, role) for prefilling enrollment."""
+    token_h = hash_token(token)
+    invite = db.query(Invite).filter(Invite.token_hash == token_h).first()
+    if not invite or invite.used_at is not None or invite.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_invite", "message": "Invitation link is invalid or expired."}
+        )
+    return {
+        "email": invite.email,
+        "role": invite.role,
+        "valid": True
+    }
+
 @router.post("/apply")
 def apply_membership(payload: ApplyRequest, db: Session = Depends(get_db)):
     """
@@ -215,6 +231,30 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             )
 
     user_id = str(uuid.uuid4())
+    user_role = "member"
+    term_end = None
+    invite_obj = None
+
+    if payload.invite_token:
+        token_h = hash_token(payload.invite_token)
+        invite_obj = db.query(Invite).filter(Invite.token_hash == token_h).first()
+        if not invite_obj:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invalid_invite", "message": "Invitation token is invalid."}
+            )
+        if invite_obj.used_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invite_used", "message": "This invitation link has already been used."}
+            )
+        if invite_obj.expires_at < datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "invite_expired", "message": "This invitation link has expired."}
+            )
+        user_role = invite_obj.role
+        term_end = invite_obj.term_end
 
     # 1. Biometric embedding extraction (graceful if ONNX models not downloaded)
     embedding = None
@@ -265,7 +305,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         name=payload.name.strip(),
         phone=payload.phone.strip(),
         password_hash=hash_password(payload.password),
-        role="member",
+        role=user_role,
+        term_end=term_end,
         status="pending_approval",
         created_at=datetime.utcnow(),
         last_active_at=datetime.utcnow(),
@@ -274,6 +315,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         document_path=doc_path_str
     )
     db.add(new_user)
+    if invite_obj:
+        invite_obj.used_at = datetime.utcnow()
     db.commit()
     db.refresh(new_user)
 

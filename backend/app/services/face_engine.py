@@ -238,3 +238,33 @@ def verify_live_face_against_stored(
         return True, score, f"Face match confirmed (confidence: {int(score * 100)}%)"
     else:
         return False, score, f"Face does not match registered member account (confidence: {int(score * 100)}% < {int(threshold * 100)}%)"
+
+
+def verify_live_face_against_candidates(
+    live_image_input: Union[str, bytes, object],
+    candidates: List[List[float]],
+    threshold: float = SIMILARITY_THRESHOLD
+) -> Tuple[bool, float, str]:
+    """
+    Compares live frame against a list of authorized embeddings.
+    Returns: (passed: bool, best_score: float, message: str)
+    """
+    if not candidates:
+        return False, 0.0, "No authorized face embeddings registered."
+
+    live_emb = extract_face_embedding(live_image_input)
+    if live_emb is None:
+        return False, 0.0, "Could not detect a clear face in the camera frame"
+
+    best_score = -1.0
+    for emb in candidates:
+        if not emb:
+            continue
+        is_match, score = compare_face_embeddings(live_emb, emb, threshold=threshold)
+        if score > best_score:
+            best_score = score
+        if is_match:
+            return True, score, f"Administrator face match confirmed (confidence: {int(score * 100)}%)"
+
+    return False, max(0.0, best_score), f"Face does not match any registered administrator profile (score: {int(best_score * 100)}% < {int(threshold * 100)}%)"
+

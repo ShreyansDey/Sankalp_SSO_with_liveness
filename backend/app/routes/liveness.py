@@ -24,9 +24,11 @@ FACES_DIR = UPLOAD_DIR / "faces"
 
 from app.services.face_engine import (
     verify_live_face_against_stored,
+    verify_live_face_against_candidates,
     extract_face_embedding,
     is_face_engine_ready
 )
+from app.services.email_service import send_login_alert_email
 
 CHALLENGE_TYPES = ["turn_left", "turn_right"]
 
@@ -203,8 +205,18 @@ def submit_result(
                 db.commit()
                 db.refresh(user)
 
-    # Step B: Strict 1:1 Face Match against enrolled face profile
+    # Step B: Biometric Face Match (candidate embeddings check)
+    candidate_embeddings = []
+    if user.admin_faces and isinstance(user.admin_faces, list):
+        for f in user.admin_faces:
+            if isinstance(f, dict) and f.get("embedding"):
+                candidate_embeddings.append(f["embedding"])
     if user.face_embedding:
+        candidate_embeddings.append(user.face_embedding)
+
+    should_verify_face = bool(user.require_face_match) or (user.role != "admin" and bool(candidate_embeddings))
+
+    if should_verify_face and candidate_embeddings:
         if not payload.live_frame:
             challenge.result = "fail"
             db.commit()
@@ -223,7 +235,7 @@ def submit_result(
             }
 
         if is_face_engine_ready():
-            is_match, score, msg = verify_live_face_against_stored(payload.live_frame, user.face_embedding)
+            is_match, score, msg = verify_live_face_against_candidates(payload.live_frame, candidate_embeddings)
             match_score = score
             if not is_match:
                 challenge.result = "fail"
@@ -239,14 +251,14 @@ def submit_result(
                     "status": "fail",
                     "passed": False,
                     "error": "face_mismatch",
-                    "message": "Physical presence confirmed, but face does not match the registered member account profile."
+                    "message": msg
                 }
             face_matched = True
         else:
             face_matched = True
 
     # Step C: First login for accounts without prior photo: enroll live face now
-    elif payload.live_frame and is_face_engine_ready():
+    elif payload.live_frame and is_face_engine_ready() and user.role != "admin":
         emb = extract_face_embedding(payload.live_frame)
         if emb is None:
             challenge.result = "fail"
@@ -287,6 +299,14 @@ def submit_result(
     db.add(sso_sess)
     db.commit()
     db.refresh(sso_sess)
+
+    # Dispatch security alert email on successful sign-in
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "Unknown IP")
+    user_agent = request.headers.get("user-agent", "Unknown Device / Browser")
+    try:
+        send_login_alert_email(user.email, user.name, client_ip, user_agent)
+    except Exception:
+        pass
 
     # Set HttpOnly session cookie
     response.set_cookie(

@@ -54,6 +54,12 @@ export default function Signup() {
 
   const tokenParam = searchParams.get("token") || "";
 
+  React.useEffect(() => {
+    if (tokenParam) {
+      navigate(`/register?token=${encodeURIComponent(tokenParam)}`, { replace: true });
+    }
+  }, [tokenParam, navigate]);
+
   // Wizard state: 'details' -> 'consent'
   const [step, setStep] = useState("details");
 

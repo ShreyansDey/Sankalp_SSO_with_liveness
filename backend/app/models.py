@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Date, ForeignKey, JSON, Text
+from sqlalchemy import Column, String, DateTime, Date, ForeignKey, JSON, Text, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -30,6 +30,8 @@ class User(Base):
     face_photo_path = Column(String(500), nullable=True)  # Stored path of live enrollment face photo
     approved_at = Column(DateTime, nullable=True)  # Timestamp when admin approved application
     approved_by = Column(String(36), ForeignKey("users.id"), nullable=True)  # Admin user id
+    require_face_match = Column(Boolean, default=False, nullable=False)  # Enforce biometric face match on login
+    admin_faces = Column(JSON, nullable=True)  # Multiple authorized face profiles for admin
 
     sso_sessions = relationship("SsoSession", back_populates="user", cascade="all, delete-orphan")
     auth_codes = relationship("AuthCode", back_populates="user", cascade="all, delete-orphan")

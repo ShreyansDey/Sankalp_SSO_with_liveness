@@ -29,7 +29,9 @@ def ensure_columns_exist():
                     ("document_path", "VARCHAR(500)"),
                     ("face_photo_path", "VARCHAR(500)"),
                     ("approved_at", "TIMESTAMP"),
-                    ("approved_by", "VARCHAR(36)")
+                    ("approved_by", "VARCHAR(36)"),
+                    ("require_face_match", "BOOLEAN DEFAULT FALSE"),
+                    ("admin_faces", "JSON")
                 ]
                 for col_name, col_type in pg_cols:
                     try:
@@ -46,7 +48,9 @@ def ensure_columns_exist():
                     ("document_path", "VARCHAR(500)"),
                     ("face_photo_path", "VARCHAR(500)"),
                     ("approved_at", "DATETIME"),
-                    ("approved_by", "VARCHAR(36)")
+                    ("approved_by", "VARCHAR(36)"),
+                    ("require_face_match", "BOOLEAN DEFAULT FALSE"),
+                    ("admin_faces", "TEXT")
                 ]
                 for col_name, col_type in cols_to_add:
                     if col_name not in existing_cols:

@@ -19,3 +19,10 @@ class CreateProductRequest(BaseModel):
 
 class RenewalActionRequest(BaseModel):
     notes: Optional[str] = None
+
+class AddAdminFaceRequest(BaseModel):
+    label: str
+    face_photo: str
+
+class ToggleRestrictionRequest(BaseModel):
+    enforce: bool
