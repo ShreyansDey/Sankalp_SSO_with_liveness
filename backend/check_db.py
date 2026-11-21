@@ -12,8 +12,9 @@ from pathlib import Path
 backend_dir = Path(__file__).resolve().parent
 sys.path.insert(0, str(backend_dir))
 
-from app.database import SessionLocal, engine
-from app.models import User, LivenessChallenge, SsoSession, AuditLog
+from app.database import SessionLocal, engine, Base
+import app.models  # Ensure all ORM models are registered
+from app.models import User, Product, LivenessChallenge, SsoSession, AuditLog, Invite, RenewalRequest
 
 def inspect_db():
     print("\n" + "=" * 80)
@@ -21,6 +22,7 @@ def inspect_db():
     print("=" * 80)
     print(f" Database URL: {engine.url}\n")
 
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         # 1. USERS & BIOMETRICS
@@ -72,6 +74,22 @@ def inspect_db():
         for l in logs:
             log_time = l.at.strftime('%H:%M:%S') if l.at else "N/A"
             print(f" • [{log_time}] Action: {l.action:<20} | Detail: {l.detail}")
+        print()
+
+        # 5. REGISTERED PRODUCTS & CLIENT APPS
+        products = db.query(Product).order_by(Product.name).all()
+        print(f"--- 5. REGISTERED CONNECTED PRODUCTS ({len(products)} Total) ---")
+        if not products:
+            print("  (No products registered)")
+        for p in products:
+            print(f" • {p.name:<24} | Client ID: {p.client_id:<12} | Callback: {p.redirect_uri}")
+        print()
+
+        # 6. DATABASE SUMMARY
+        print("--- 6. TABLE ROW COUNTS ---")
+        print(f" • Users: {len(users)} | Products: {len(products)} | Invites: {db.query(Invite).count()}")
+        print(f" • SSO Sessions: {db.query(SsoSession).count()} | Liveness Logs: {db.query(LivenessChallenge).count()} | Audit Logs: {db.query(AuditLog).count()}")
+        print(f" • Renewal Requests: {db.query(RenewalRequest).count()}")
         print()
 
     except Exception as e:

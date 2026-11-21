@@ -82,7 +82,7 @@ flowchart TD
 const faceHeight = Math.max(...yVals) - Math.min(...yVals);
 const faceWidth = Math.max(...xVals) - Math.min(...xVals);
 
-if (faceHeight < 0.28 || faceWidth < 0.20) {
+if (faceHeight < 0.20 || faceWidth < 0.15) {
   setWarningNotice("Face is too far or small. Fit your face inside the guide oval.");
   return;
 }
@@ -96,7 +96,7 @@ const stdZ = Math.sqrt(zValues.reduce((a, b) => a + Math.pow(b - meanZ, 2), 0) /
 const depthDelta = Math.abs(landmarks[1].z - (landmarks[234].z + landmarks[454].z) / 2);
 
 // Flat 2D photographs have near-zero standard deviation along the Z axis
-if (stdZ < 0.015 && depthDelta < 0.02) {
+if (stdZ < 0.008 && depthDelta < 0.012) {
   setWarningNotice("Flat 2D surface detected. Real 3D facial presence required.");
   return;
 }
@@ -225,6 +225,26 @@ def submit_result(payload: ResultRequest, response: Response, db: Session = Depe
     )
     log_audit(db, action="liveness_pass", actor_id=user.id)
     return {"status": "ok", "message": "Liveness and biometric verification confirmed."}
+```
+
+### 4.2. Resilient Multi-Tier Camera Acquisition Ladder (`frontend/src/pages/Liveness.jsx`)
+
+To prevent camera hardware locks, `OverconstrainedError`, and `NotReadableError` on different operating systems and camera models:
+
+```javascript
+// 5-Tier Resilient getUserMedia Fallback Hierarchy
+const tryConstraints = [
+  // Tier 1: Exact preferred device ID (if previously selected/saved)
+  { video: { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+  // Tier 2: Non-exact preferred device ID
+  { video: { deviceId: devId, width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+  // Tier 3: User-facing camera with ideal resolution
+  { video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false },
+  // Tier 4: User-facing camera without resolution constraints
+  { video: { facingMode: "user" }, audio: false },
+  // Tier 5: Universal fallback: any functional video input stream
+  { video: true, audio: false }
+];
 ```
 
 ---

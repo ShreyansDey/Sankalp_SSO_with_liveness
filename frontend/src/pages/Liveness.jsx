@@ -69,17 +69,29 @@ export default function Liveness() {
   const faceMeshRef = useRef(null);
   const isSubmittingRef = useRef(false);
   const stepRef = useRef(1);
+  const challengeInitiatedRef = useRef(false);
 
   // 1. Enumerate and prioritize laptop webcam
-  useEffect(() => {
-    async function getDevices() {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((d) => d.kind === "videoinput");
-        setVideoDevices(videoInputs);
+  const refreshDevices = async (activeStream = null) => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
 
-        if (videoInputs.length > 0) {
+      if (videoInputs.length > 0) {
+        let activeTrackDeviceId = null;
+        if (activeStream) {
+          const videoTrack = activeStream.getVideoTracks()[0];
+          if (videoTrack?.getSettings) {
+            activeTrackDeviceId = videoTrack.getSettings().deviceId;
+          }
+        }
+
+        if (activeTrackDeviceId && videoInputs.some((d) => d.deviceId === activeTrackDeviceId)) {
+          setSelectedDeviceId(activeTrackDeviceId);
+          localStorage.setItem("sankalp_preferred_camera", activeTrackDeviceId);
+        } else {
           const saved = localStorage.getItem("sankalp_preferred_camera");
           const savedExists = videoInputs.some((d) => d.deviceId === saved);
 
@@ -91,27 +103,34 @@ export default function Liveness() {
               return (
                 (label.includes("integrated") ||
                   label.includes("internal") ||
+                  label.includes("built-in") ||
                   label.includes("webcam") ||
                   label.includes("facetime") ||
-                  label.includes("hd camera")) &&
+                  label.includes("hd camera") ||
+                  label.includes("front") ||
+                  label.includes("user")) &&
                 !label.includes("oppo") &&
                 !label.includes("phone") &&
                 !label.includes("link") &&
-                !label.includes("virtual")
+                !label.includes("virtual") &&
+                !label.includes("droidcam") &&
+                !label.includes("camo") &&
+                !label.includes("obs")
               );
             });
 
             const chosen = integrated ? integrated.deviceId : videoInputs[0].deviceId;
-            setSelectedDeviceId(chosen);
-            localStorage.setItem("sankalp_preferred_camera", chosen);
+            if (chosen) {
+              setSelectedDeviceId(chosen);
+              localStorage.setItem("sankalp_preferred_camera", chosen);
+            }
           }
         }
-      } catch (err) {
-        console.warn("Could not list video devices:", err);
       }
+    } catch (err) {
+      console.warn("Could not list video devices:", err);
     }
-    getDevices();
-  }, []);
+  };
 
   // 2. Fetch challenge from backend
   const fetchChallenge = async () => {
@@ -149,61 +168,123 @@ export default function Liveness() {
     }
   };
 
-  // 3. Initialize or switch camera
-  useEffect(() => {
-    let active = true;
+  // 3. Multi-tier camera stream acquisition (with guaranteed fallback)
+  const getRobustCameraStream = async (targetDeviceId = null) => {
+    const devId = targetDeviceId || selectedDeviceId || localStorage.getItem("sankalp_preferred_camera");
+    const tryConstraints = [];
 
-    async function initCamera() {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      setStatus("camera_connecting");
-
-      try {
-        const constraints = {
-          video: selectedDeviceId
-            ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-            : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: false,
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-        if (!active) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            if (active) {
-              videoRef.current.play().then(() => {
-                fetchChallenge();
-              }).catch((e) => console.warn("Video play error:", e));
-            }
-          };
-        }
-      } catch (err) {
-        console.warn("Camera init error:", err);
-        setStatus("completed_fail");
-        setErrorMsg("Camera busy or disconnected. Click 'Quick Demo Verification' below to proceed.");
-      }
+    if (devId) {
+      tryConstraints.push({
+        video: { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
+      tryConstraints.push({
+        video: { deviceId: devId, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
     }
 
-    initCamera();
+    tryConstraints.push({
+      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false,
+    });
+
+    tryConstraints.push({
+      video: { facingMode: "user" },
+      audio: false,
+    });
+
+    tryConstraints.push({
+      video: true,
+      audio: false,
+    });
+
+    let lastError = null;
+    for (const constraints of tryConstraints) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (stream && stream.getVideoTracks().length > 0) {
+          return stream;
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn("Camera constraint attempt failed:", constraints, err.name, err.message);
+      }
+    }
+    throw lastError || new Error("Unable to access any camera input device.");
+  };
+
+  // 4. Start camera and attach stream to video element
+  const startCamera = async (targetDeviceId = null) => {
+    setStatus("camera_connecting");
+    setErrorMsg("");
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    try {
+      const stream = await getRobustCameraStream(targetDeviceId);
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        const onReady = () => {
+          videoRef.current?.play().catch((e) => console.warn("Video play error:", e));
+          if (!challengeInitiatedRef.current) {
+            challengeInitiatedRef.current = true;
+            fetchChallenge();
+          }
+        };
+
+        if (videoRef.current.readyState >= 1) {
+          onReady();
+        } else {
+          videoRef.current.onloadedmetadata = onReady;
+        }
+        videoRef.current.play().catch(() => {});
+      }
+
+      await refreshDevices(stream);
+    } catch (err) {
+      console.warn("Camera init error:", err);
+      setStatus("completed_fail");
+      setErrorMsg(
+        `Camera access denied or unavailable (${err.name || "Error"}: ${err.message || "check permissions"}). Please ensure your camera is not used by another application and allow camera permissions.`
+      );
+    }
+  };
+
+  const switchCamera = async (newDeviceId) => {
+    setSelectedDeviceId(newDeviceId);
+    localStorage.setItem("sankalp_preferred_camera", newDeviceId);
+    await startCamera(newDeviceId);
+  };
+
+  useEffect(() => {
+    challengeInitiatedRef.current = false;
+    startCamera();
+
+    const handleDeviceChange = () => refreshDevices(streamRef.current);
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    }
 
     return () => {
-      active = false;
+      if (navigator.mediaDevices?.removeEventListener) {
+        navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
       }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
-  }, [selectedDeviceId]);
+  }, []);
 
   // 4. Per-step timer countdown (7s limit per step)
   useEffect(() => {
@@ -315,53 +396,81 @@ export default function Liveness() {
 
   // 6. MediaPipe FaceMesh detection loop
   useEffect(() => {
-    if (!window.FaceMesh) return;
+    let cancelled = false;
+    let localFaceMesh = null;
 
-    const faceMesh = new window.FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    });
-
-    faceMesh.setOptions({
-      maxNumFaces: 2,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    faceMesh.onResults(onFaceMeshResults);
-    faceMeshRef.current = faceMesh;
-
-    let isProcessing = false;
-
-    async function sendFrame() {
-      if (
-        videoRef.current &&
-        videoRef.current.readyState >= 2 &&
-        !isProcessing &&
-        status === "waiting_action" &&
-        !isSubmittingRef.current
-      ) {
-        isProcessing = true;
-        try {
-          await faceMesh.send({ image: videoRef.current });
-        } catch (e) {
-          // Frame dropped
-        } finally {
-          isProcessing = false;
-        }
+    function initFaceMesh() {
+      if (cancelled) return;
+      if (!window.FaceMesh) {
+        const timer = setTimeout(initFaceMesh, 150);
+        return () => clearTimeout(timer);
       }
-      if (status === "waiting_action" && !isSubmittingRef.current) {
-        animationFrameRef.current = requestAnimationFrame(sendFrame);
+
+      try {
+        localFaceMesh = new window.FaceMesh({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        });
+
+        localFaceMesh.setOptions({
+          maxNumFaces: 2,
+          refineLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+
+        localFaceMesh.onResults((results) => {
+          if (!cancelled) onFaceMeshResults(results);
+        });
+        faceMeshRef.current = localFaceMesh;
+
+        let isProcessing = false;
+
+        async function sendFrame() {
+          if (cancelled) return;
+          if (
+            videoRef.current &&
+            videoRef.current.readyState >= 2 &&
+            videoRef.current.videoWidth > 0 &&
+            videoRef.current.videoHeight > 0 &&
+            !isProcessing &&
+            status === "waiting_action" &&
+            !isSubmittingRef.current
+          ) {
+            isProcessing = true;
+            try {
+              await localFaceMesh.send({ image: videoRef.current });
+            } catch (e) {
+              // Frame dropped
+            } finally {
+              isProcessing = false;
+            }
+          }
+          if (!cancelled && status === "waiting_action" && !isSubmittingRef.current) {
+            animationFrameRef.current = requestAnimationFrame(sendFrame);
+          }
+        }
+
+        if (status === "waiting_action") {
+          animationFrameRef.current = requestAnimationFrame(sendFrame);
+        }
+      } catch (err) {
+        console.error("FaceMesh initialization error:", err);
       }
     }
 
     if (status === "waiting_action") {
-      animationFrameRef.current = requestAnimationFrame(sendFrame);
+      initFaceMesh();
     }
 
     return () => {
+      cancelled = true;
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (localFaceMesh?.close) {
+        try {
+          localFaceMesh.close();
+        } catch {}
       }
     };
   }, [status, challenge]);
@@ -408,11 +517,11 @@ export default function Liveness() {
     const faceWidth = maxX - minX;
     const faceHeight = maxY - minY;
 
-    if (faceHeight < 0.28 || faceWidth < 0.20) {
+    if (faceHeight < 0.20 || faceWidth < 0.15) {
       setWarningNotice("Face is too far or small. Fit your face inside the guide oval.");
       return;
     }
-    if (faceHeight > 0.85 || faceWidth > 0.80) {
+    if (faceHeight > 0.90 || faceWidth > 0.85) {
       setWarningNotice("Face is too close to camera lens. Move back slightly.");
       return;
     }
@@ -428,7 +537,7 @@ export default function Liveness() {
     const avgEarZ = (landmarks[234].z + landmarks[454].z) / 2;
     const depthDelta = Math.abs(noseZ - avgEarZ);
 
-    if (stdZ < 0.015 && depthDelta < 0.02) {
+    if (stdZ < 0.008 && depthDelta < 0.012) {
       setWarningNotice("Flat 2D surface detected. Real 3D facial presence required.");
       return;
     }
@@ -794,32 +903,61 @@ export default function Liveness() {
             </div>
 
             {/* Webcam selection if multiple cameras exist */}
-            {videoDevices.length > 1 && (
-              <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#5A6270" }}>
-                <span>Webcam:</span>
+            {videoDevices.length > 0 && (
+              <div style={{
+                marginTop: "12px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                background: "#FDFBF7",
+                border: "1px solid #C4BCAF",
+                borderRadius: "8px",
+                padding: "8px 12px",
+                fontSize: "12px",
+                boxSizing: "border-box",
+                overflow: "hidden"
+              }}>
+                <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  Camera:
+                </span>
                 <select
                   value={selectedDeviceId}
-                  onChange={(e) => {
-                    const devId = e.target.value;
-                    setSelectedDeviceId(devId);
-                    localStorage.setItem("sankalp_preferred_camera", devId);
-                  }}
+                  onChange={(e) => switchCamera(e.target.value)}
                   style={{
                     flex: 1,
-                    height: "30px",
+                    minWidth: 0,
+                    width: "100%",
+                    maxWidth: "100%",
+                    height: "32px",
                     padding: "0 8px",
                     borderRadius: "6px",
                     border: "1px solid #C4BCAF",
-                    background: "#FDFBF7",
+                    background: "#FFFFFF",
                     fontSize: "12px",
-                    color: "#12171E"
+                    color: "#12171E",
+                    cursor: "pointer",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden"
                   }}
                 >
-                  {videoDevices.map((dev, idx) => (
-                    <option key={dev.deviceId || idx} value={dev.deviceId}>
-                      {dev.label || `Camera ${idx + 1}`}
-                    </option>
-                  ))}
+                  {videoDevices.map((dev, idx) => {
+                    const devLabel = dev.label || `Camera ${idx + 1}`;
+                    const labelLower = devLabel.toLowerCase();
+                    const isSystem = (
+                      labelLower.includes("integrated") ||
+                      labelLower.includes("internal") ||
+                      labelLower.includes("built-in") ||
+                      labelLower.includes("webcam") ||
+                      labelLower.includes("facetime") ||
+                      labelLower.includes("hd camera")
+                    );
+                    return (
+                      <option key={dev.deviceId || idx} value={dev.deviceId} title={devLabel}>
+                        {devLabel} {isSystem ? "(System / Built-in)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             )}
@@ -1075,7 +1213,14 @@ export default function Liveness() {
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px" }}>
                   <button
                     type="button"
-                    onClick={fetchChallenge}
+                    onClick={() => {
+                      if (streamRef.current && streamRef.current.getVideoTracks().some(t => t.readyState === "live")) {
+                        fetchChallenge();
+                      } else {
+                        challengeInitiatedRef.current = false;
+                        startCamera();
+                      }
+                    }}
                     style={{
                       height: "46px",
                       padding: "0 28px",
@@ -1088,7 +1233,7 @@ export default function Liveness() {
                       cursor: "pointer"
                     }}
                   >
-                    Try again
+                    Try Again
                   </button>
                   <button
                     type="button"

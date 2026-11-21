@@ -135,51 +135,59 @@ export default function AdminFaceLockTab({
 
     const devId = targetDeviceId || selectedDeviceId || localStorage.getItem("sankalp_preferred_camera");
 
-    const constraints = {
-      video: devId
-        ? { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } }
-        : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false
-    };
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setCameraActive(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(() => {});
-        };
-        videoRef.current.play().catch(() => {});
-      }
-      refreshDevices(stream);
-    } catch (err) {
-      // Fallback to generic user-facing device camera if exact devId fails
-      if (devId) {
-        try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: false
-          });
-          streamRef.current = fallbackStream;
-          setCameraActive(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = fallbackStream;
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play().catch(() => {});
-            };
-            videoRef.current.play().catch(() => {});
-          }
-          refreshDevices(fallbackStream);
-          return;
-        } catch {
-          // fallback failed
-        }
-      }
-      setFormError("Could not access camera. Please check camera permissions or upload an image file.");
-      setCameraActive(false);
+    const tryConstraints = [];
+    if (devId) {
+      tryConstraints.push({
+        video: { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
+      tryConstraints.push({
+        video: { deviceId: devId, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
     }
+    tryConstraints.push({
+      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+    tryConstraints.push({
+      video: { facingMode: "user" },
+      audio: false
+    });
+    tryConstraints.push({
+      video: true,
+      audio: false
+    });
+
+    let stream = null;
+    let lastError = null;
+    for (const constraints of tryConstraints) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (stream && stream.getVideoTracks().length > 0) {
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!stream) {
+      setFormError("Could not access camera (" + (lastError?.message || "check permissions") + "). Please check camera permissions or upload an image file.");
+      setCameraActive(false);
+      return;
+    }
+
+    streamRef.current = stream;
+    setCameraActive(true);
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(() => {});
+      };
+      videoRef.current.play().catch(() => {});
+    }
+    refreshDevices(stream);
   };
 
   const switchCamera = async (newDeviceId) => {
