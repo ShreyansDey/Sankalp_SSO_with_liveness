@@ -214,7 +214,22 @@ export default function AdminMembersTab({
 
                     {/* Action Button */}
                     <div style={{ textAlign: "right" }}>
-                      {u.status === "active" ? (
+                      {u.role === "admin" ? (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          padding: "6px 12px",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "#8A4A0F",
+                          background: "#FDF4EB",
+                          border: "1px solid #F5D6B8",
+                          borderRadius: "6px"
+                        }}>
+                          Protected Admin
+                        </span>
+                      ) : u.status === "active" ? (
                         <button
                           type="button"
                           onClick={() => onMarkLeft(u)}

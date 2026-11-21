@@ -76,6 +76,15 @@ def test_admin_and_cleanup_flow(client, db_session):
     res_left = client.post(f"/admin/users/{rahul.id}/mark-left")
     assert res_left.status_code == 200
 
+    # 2b. Admin CANNOT mark another admin (or themselves) as left or disabled
+    res_admin_left = client.post(f"/admin/users/{admin.id}/mark-left")
+    assert res_admin_left.status_code == 400
+    assert res_admin_left.json()["error"] == "cannot_remove_admin"
+
+    res_admin_disable = client.post(f"/admin/users/{admin.id}/disable", json={"reason": "test"})
+    assert res_admin_disable.status_code == 400
+    assert res_admin_disable.json()["error"] == "cannot_remove_admin"
+
     # Verify Rahul is disabled and reason is 'left'
     db_session.refresh(rahul)
     assert rahul.status == "disabled"
