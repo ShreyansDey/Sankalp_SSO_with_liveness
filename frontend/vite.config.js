@@ -14,11 +14,21 @@ export default defineConfig({
       },
       '/admin': {
         target: 'http://localhost:8001',
-        changeOrigin: true
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept && req.headers.accept.includes('text/html')) {
+            return '/index.html';
+          }
+        }
       },
       '/liveness': {
         target: 'http://localhost:8001',
-        changeOrigin: true
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept && req.headers.accept.includes('text/html')) {
+            return '/index.html';
+          }
+        }
       },
       '/sso': {
         target: 'http://localhost:8001',
