@@ -101,6 +101,10 @@ export default function Clubs() {
         const targetDomain = subdomains[path] || `${path}.sa`;
         return `${proto}//${targetDomain}`;
       }
+      // If accessed via ngrok, tunnel, or any remote domain, route through the Vite proxy subpath
+      if (host.includes("ngrok") || host.includes("trycloudflare") || host.includes("loca.lt")) {
+        return `${window.location.origin}/${path}/`;
+      }
       if (host === "localhost" || host === "127.0.0.1") {
         return `http://localhost:${port}`;
       }

@@ -16,6 +16,9 @@ export function resolveClubUrl(club) {
       const targetDomain = subdomains[club.id] || `${club.id}.sa`;
       return `${proto}//${targetDomain}`;
     }
+    if (host.includes("ngrok") || host.includes("trycloudflare") || host.includes("loca.lt")) {
+      return `${window.location.origin}/${club.id}/`;
+    }
     if (host === "localhost" || host === "127.0.0.1") {
       return `http://localhost:${club.port}`;
     }
