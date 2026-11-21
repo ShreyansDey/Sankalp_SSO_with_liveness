@@ -107,6 +107,10 @@ export default function Admin() {
   };
 
   const handleToggleFaceRestriction = async (enforce) => {
+    if (enforce && faceProfiles.length === 0) {
+      setErrorMessage("Cannot enforce Biometric Lock without enrolling at least one authorized administrator face profile. Please enroll your face below first.");
+      return;
+    }
     try {
       setStatusMessage(null);
       setErrorMessage(null);
@@ -116,6 +120,7 @@ export default function Admin() {
       });
       setRequireFaceMatch(Boolean(res.require_face_match));
       setStatusMessage(res.message || "Face restriction setting updated.");
+      await fetchFaceProfiles();
       await fetchAudit();
     } catch (err) {
       setErrorMessage(err.message || "Failed to toggle face restriction");
@@ -399,14 +404,7 @@ export default function Admin() {
   return (
     <div style={{ minHeight: "100vh", background: "#F5F1E8", color: "#12171E", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
       {/* TOP HEADER */}
-      <header style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "16px 28px",
-        background: "#F5F1E8",
-        borderBottom: "1px solid #DDD6C7"
-      }}>
+      <header className="admin-header">
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Link to="/clubs" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", color: "inherit" }}>
             <span style={{
@@ -428,11 +426,11 @@ export default function Admin() {
               Sankalp SSO
             </span>
           </Link>
-          <span style={{ fontSize: "13px", color: "#5A6270" }}>&bull;</span>
-          <span style={{ fontSize: "14px", fontWeight: 500, color: "#12171E" }}>Admin Command Desk</span>
+          <span className="admin-header-sep" style={{ fontSize: "13px", color: "#5A6270" }}>&bull;</span>
+          <span className="admin-header-title" style={{ fontSize: "14px", fontWeight: 500, color: "#12171E" }}>Admin Command Desk</span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        <div className="admin-header-actions" style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Link
             to="/clubs"
             style={{
@@ -442,7 +440,8 @@ export default function Admin() {
               textDecoration: "none",
               padding: "6px 12px",
               borderRadius: "6px",
-              background: "#EAE4D6"
+              background: "#EAE4D6",
+              whiteSpace: "nowrap"
             }}
           >
             ← View Campus Clubs
@@ -459,11 +458,12 @@ export default function Admin() {
               alignItems: "center",
               justifyContent: "center",
               fontSize: "12px",
-              fontWeight: 600
+              fontWeight: 600,
+              flexShrink: 0
             }}>
               {getInitials(currentUser?.name)}
             </div>
-            <div style={{ fontSize: "14px", fontWeight: 500, color: "#12171E" }}>
+            <div className="admin-user-name" style={{ fontSize: "14px", fontWeight: 500, color: "#12171E", whiteSpace: "nowrap" }}>
               {currentUser?.name || "Administrator"}
             </div>
           </div>
@@ -479,7 +479,8 @@ export default function Admin() {
               background: "transparent",
               border: "1px solid #9B3A22",
               borderRadius: "6px",
-              cursor: "pointer"
+              cursor: "pointer",
+              whiteSpace: "nowrap"
             }}
           >
             Sign out
@@ -488,20 +489,9 @@ export default function Admin() {
       </header>
 
       {/* BODY WITH SIDEBAR NAVIGATION */}
-      <div style={{ display: "flex", minHeight: "calc(100vh - 69px)" }}>
+      <div className="admin-layout">
         {/* SIDEBAR TABS */}
-        <nav
-          style={{
-            width: "240px",
-            flexShrink: 0,
-            borderRight: "1px solid #DDD6C7",
-            padding: "24px 16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-            background: "#F3EFE7"
-          }}
-        >
+        <nav className="admin-sidebar">
           <button
             onClick={() => setActiveTab("members")}
             style={{
@@ -652,7 +642,7 @@ export default function Admin() {
             }}
           >
             <span>Biometric Face Lock</span>
-            {requireFaceMatch && (
+            {requireFaceMatch && faceProfiles.length > 0 && (
               <span style={{
                 background: "#1F6B3F",
                 color: "#FFFFFF",
@@ -668,15 +658,7 @@ export default function Admin() {
         </nav>
 
         {/* MAIN ADMIN WORK AREA */}
-        <main style={{
-          flex: "1 1 640px",
-          minWidth: 0,
-          boxSizing: "border-box",
-          padding: "32px 40px 40px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "28px"
-        }}>
+        <main className="admin-content">
           {/* Status Alerts */}
           {statusMessage && (
             <div style={{

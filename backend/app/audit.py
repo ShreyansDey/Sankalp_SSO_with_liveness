@@ -28,7 +28,10 @@ VALID_AUDIT_ACTIONS = {
     "renewal_requested",
     "renewal_approved",
     "renewal_declined",
-    "user_purged_permanently"
+    "user_purged_permanently",
+    "admin_face_enrolled",
+    "admin_face_deleted",
+    "admin_face_restriction_toggled"
 }
 
 def log_audit(

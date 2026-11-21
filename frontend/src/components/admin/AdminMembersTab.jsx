@@ -70,7 +70,7 @@ export default function AdminMembersTab({
       </div>
 
       {/* Summary KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px" }}>
+      <div className="admin-kpi-grid">
         <div style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "12px", padding: "20px" }}>
           <div style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: "40px", fontWeight: 500, lineHeight: 1 }}>{activeCount}</div>
           <div style={{ fontSize: "14px", color: "#5A6270", marginTop: "8px" }}>Active members</div>
@@ -92,7 +92,7 @@ export default function AdminMembersTab({
       {/* Members Table Card */}
       <section style={{ background: "#FBF9F4", border: "1px solid #DDD6C7", borderRadius: "14px", overflow: "hidden" }}>
         {/* Search & Filter Bar */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "16px 20px", borderBottom: "1px solid #E6E0D2" }}>
+        <div className="admin-search-filter-bar" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "16px", padding: "16px 20px", borderBottom: "1px solid #E6E0D2" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "14px", fontWeight: 500 }}>
             {["all", "active", "ending_soon", "disabled"].map((f) => (
               <button
@@ -113,7 +113,7 @@ export default function AdminMembersTab({
             ))}
           </div>
 
-          <div>
+          <div className="admin-search-wrapper">
             <input
               type="search"
               placeholder="Search by name or email"
@@ -136,7 +136,7 @@ export default function AdminMembersTab({
         </div>
 
         {/* Table */}
-        <div style={{ overflowX: "auto" }}>
+        <div className="table-responsive" style={{ overflowX: "auto" }}>
           <div style={{ minWidth: "860px" }}>
             <div style={{
               display: "grid",

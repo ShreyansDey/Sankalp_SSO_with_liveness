@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { formatIST } from "../../utils/time";
 
 /**
@@ -28,24 +28,164 @@ export default function AdminFaceLockTab({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
 
+  // Camera device management (Prioritize system / built-in webcam)
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(() => {
+    return localStorage.getItem("sankalp_preferred_camera") || "";
+  });
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const startCamera = async () => {
+  // Enumerate video devices and prioritize system / built-in camera
+  const refreshDevices = async (activeStream = null) => {
     try {
-      setFormError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
-      });
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+
+      if (videoInputs.length > 0) {
+        const saved = localStorage.getItem("sankalp_preferred_camera");
+        const savedExists = videoInputs.some((d) => d.deviceId === saved);
+
+        let activeTrackDeviceId = null;
+        if (activeStream) {
+          const videoTrack = activeStream.getVideoTracks()[0];
+          if (videoTrack?.getSettings) {
+            activeTrackDeviceId = videoTrack.getSettings().deviceId;
+          }
+        }
+
+        if (activeTrackDeviceId && videoInputs.some((d) => d.deviceId === activeTrackDeviceId)) {
+          setSelectedDeviceId(activeTrackDeviceId);
+          localStorage.setItem("sankalp_preferred_camera", activeTrackDeviceId);
+        } else if (saved && savedExists) {
+          setSelectedDeviceId(saved);
+        } else {
+          // Prioritize built-in system / integrated computer camera
+          const integrated = videoInputs.find((d) => {
+            const labelLower = (d.label || "").toLowerCase();
+            return (
+              (labelLower.includes("integrated") ||
+                labelLower.includes("internal") ||
+                labelLower.includes("built-in") ||
+                labelLower.includes("webcam") ||
+                labelLower.includes("facetime") ||
+                labelLower.includes("hd camera") ||
+                labelLower.includes("front") ||
+                labelLower.includes("user")) &&
+              !labelLower.includes("oppo") &&
+              !labelLower.includes("phone") &&
+              !labelLower.includes("link") &&
+              !labelLower.includes("virtual") &&
+              !labelLower.includes("droidcam") &&
+              !labelLower.includes("camo") &&
+              !labelLower.includes("obs")
+            );
+          });
+          const chosen = integrated ? integrated.deviceId : videoInputs[0].deviceId;
+          setSelectedDeviceId(chosen);
+          localStorage.setItem("sankalp_preferred_camera", chosen);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not list video devices:", err);
+    }
+  };
+
+  useEffect(() => {
+    refreshDevices();
+    const handleDeviceChange = () => refreshDevices(streamRef.current);
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+      return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    }
+  }, []);
+
+  // Ensure stream cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  const attachVideoRef = (el) => {
+    videoRef.current = el;
+    if (el && streamRef.current) {
+      el.srcObject = streamRef.current;
+      el.onloadedmetadata = () => {
+        el.play().catch(() => {});
+      };
+      el.play().catch(() => {});
+    }
+  };
+
+  const startCamera = async (targetDeviceId = null) => {
+    if (typeof targetDeviceId !== "string") {
+      targetDeviceId = null;
+    }
+    setFormError(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    const devId = targetDeviceId || selectedDeviceId || localStorage.getItem("sankalp_preferred_camera");
+
+    const constraints = {
+      video: devId
+        ? { deviceId: { exact: devId }, width: { ideal: 640 }, height: { ideal: 480 } }
+        : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    };
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(() => {});
+        };
+        videoRef.current.play().catch(() => {});
       }
-      setCameraActive(true);
-    } catch {
+      refreshDevices(stream);
+    } catch (err) {
+      // Fallback to generic user-facing device camera if exact devId fails
+      if (devId) {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+          });
+          streamRef.current = fallbackStream;
+          setCameraActive(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.onloadedmetadata = () => {
+              videoRef.current?.play().catch(() => {});
+            };
+            videoRef.current.play().catch(() => {});
+          }
+          refreshDevices(fallbackStream);
+          return;
+        } catch {
+          // fallback failed
+        }
+      }
       setFormError("Could not access camera. Please check camera permissions or upload an image file.");
+      setCameraActive(false);
+    }
+  };
+
+  const switchCamera = async (newDeviceId) => {
+    setSelectedDeviceId(newDeviceId);
+    localStorage.setItem("sankalp_preferred_camera", newDeviceId);
+    if (cameraActive) {
+      await startCamera(newDeviceId);
     }
   };
 
@@ -59,11 +199,17 @@ export default function AdminFaceLockTab({
 
   const captureSnapshot = () => {
     if (!videoRef.current) return;
+    const v = videoRef.current;
+    const w = v.videoWidth || 640;
+    const h = v.videoHeight || 480;
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    // Draw mirrored to match viewfinder
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(v, 0, 0, w, h);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     setPhotoBase64(dataUrl);
     stopCamera();
@@ -134,27 +280,39 @@ export default function AdminFaceLockTab({
 
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" }}>
             <span style={{
-              background: requireFaceMatch ? "#DDEFE2" : "#E4DDCF",
-              color: requireFaceMatch ? "#1F6B3F" : "#5A6270",
-              border: `1px solid ${requireFaceMatch ? "#1F6B3F" : "#B9B2A3"}`,
+              background: (requireFaceMatch && faceProfiles.length > 0) ? "#DDEFE2" : "#E4DDCF",
+              color: (requireFaceMatch && faceProfiles.length > 0) ? "#1F6B3F" : "#5A6270",
+              border: `1px solid ${(requireFaceMatch && faceProfiles.length > 0) ? "#1F6B3F" : "#B9B2A3"}`,
               fontSize: "12px",
               fontWeight: 700,
               padding: "4px 12px",
               borderRadius: "999px",
               letterSpacing: "0.5px"
             }}>
-              {requireFaceMatch ? "BIOMETRIC LOCK ACTIVE" : "STANDARD LIVENESS ONLY"}
+              {(requireFaceMatch && faceProfiles.length > 0) ? "BIOMETRIC LOCK ACTIVE" : "STANDARD LIVENESS ONLY"}
             </span>
 
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || (faceProfiles.length === 0 && !requireFaceMatch)}
               onClick={() => onToggleRestriction(!requireFaceMatch)}
-              className={requireFaceMatch ? "btn-outline" : "btn-dark"}
-              style={{ height: "38px", padding: "0 18px", fontSize: "13.5px" }}
+              className={(requireFaceMatch && faceProfiles.length > 0) ? "btn-outline" : "btn-dark"}
+              style={{
+                height: "38px",
+                padding: "0 18px",
+                fontSize: "13.5px",
+                opacity: (faceProfiles.length === 0 && !requireFaceMatch) ? 0.5 : 1,
+                cursor: (faceProfiles.length === 0 && !requireFaceMatch) ? "not-allowed" : "pointer"
+              }}
+              title={faceProfiles.length === 0 ? "You must enroll an authorized administrator face profile below before enforcing biometric lock." : ""}
             >
-              {requireFaceMatch ? "Disable Biometric Lock" : "Enforce Biometric Lock"}
+              {(requireFaceMatch && faceProfiles.length > 0) ? "Disable Biometric Lock" : "Enforce Biometric Lock"}
             </button>
+            {faceProfiles.length === 0 && (
+              <span style={{ fontSize: "11px", color: "#8A4A0F", fontWeight: 500 }}>
+                Enroll face profile below to enable lock
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -303,16 +461,90 @@ export default function AdminFaceLockTab({
             alignItems: "center",
             gap: "14px"
           }}>
+            {/* Camera Switcher Dropdown (System / Integrated Camera) */}
+            {videoDevices.length > 0 && (
+              <div style={{
+                width: "100%",
+                maxWidth: "380px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                background: "#FDFBF7",
+                border: "1px solid #C4BCAF",
+                borderRadius: "8px",
+                padding: "6px 12px",
+                fontSize: "12px",
+                boxSizing: "border-box"
+              }}>
+                <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap" }}>
+                  Camera:
+                </span>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => switchCamera(e.target.value)}
+                  style={{
+                    flex: 1,
+                    maxWidth: "100%",
+                    height: "30px",
+                    padding: "0 8px",
+                    borderRadius: "6px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FFFFFF",
+                    fontSize: "12px",
+                    color: "#12171E",
+                    cursor: "pointer"
+                  }}
+                >
+                  {videoDevices.map((dev, idx) => {
+                    const devLabel = dev.label || `Camera ${idx + 1}`;
+                    const isSystem = (
+                      devLabel.toLowerCase().includes("integrated") ||
+                      devLabel.toLowerCase().includes("internal") ||
+                      devLabel.toLowerCase().includes("built-in") ||
+                      devLabel.toLowerCase().includes("webcam") ||
+                      devLabel.toLowerCase().includes("facetime") ||
+                      devLabel.toLowerCase().includes("hd camera")
+                    );
+                    return (
+                      <option key={dev.deviceId || idx} value={dev.deviceId}>
+                        {devLabel} {isSystem ? "(System / Built-in Camera)" : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
             {/* Live Camera View */}
             {cameraActive && (
-              <div style={{ position: "relative", width: "100%", maxWidth: "380px", borderRadius: "10px", overflow: "hidden", background: "#000" }}>
+              <div style={{
+                position: "relative",
+                width: "100%",
+                maxWidth: "380px",
+                borderRadius: "12px",
+                overflow: "hidden",
+                background: "#12171E",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}>
                 <video
-                  ref={videoRef}
+                  ref={attachVideoRef}
                   autoPlay
                   playsInline
                   muted
-                  style={{ width: "100%", height: "260px", objectFit: "cover" }}
+                  style={{ width: "100%", height: "260px", objectFit: "cover", transform: "scaleX(-1)" }}
                 />
+                {/* Oval Face Alignment Guide */}
+                <div style={{
+                  position: "absolute",
+                  width: "140px",
+                  height: "180px",
+                  borderRadius: "50%",
+                  border: "2.5px dashed #D9822B",
+                  pointerEvents: "none"
+                }} />
               </div>
             )}
 

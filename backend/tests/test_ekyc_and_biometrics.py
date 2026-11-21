@@ -266,3 +266,94 @@ def test_liveness_with_biometric_face_matching(client, db_session, monkeypatch):
     assert res_genuine_data["passed"] is True
     assert "session_id" in res_genuine_data
     assert "sso_session" in res_genuine.cookies
+
+
+def test_admin_face_lock_enforcement_gating(client, db_session, monkeypatch):
+    """
+    Test Admin Biometric Face Lock Gating:
+    1. Admin cannot enforce biometric lock without any enrolled authorized face profiles (HTTP 400 no_face_enrolled).
+    2. Admin enrolls authorized face profile -> 128D embedding saved in admin_faces.
+    3. Admin can now toggle biometric lock freely.
+    4. Deleting the last authorized face profile automatically disables biometric lock.
+    """
+    import app.routes.admin as admin_module
+
+    # Mock extract_face_embedding to produce a valid 128-D vector
+    monkeypatch.setattr(admin_module, "extract_face_embedding", lambda photo: [0.15] * 128)
+
+    admin = User(
+        email="gate_admin@example.com",
+        name="Gate Admin",
+        password_hash=hash_password("AdminGatePass123!"),
+        role="admin",
+        status="active",
+        require_face_match=False,
+        admin_faces=[]
+    )
+    db_session.add(admin)
+    db_session.commit()
+
+    admin_session = SsoSession(
+        user_id=admin.id,
+        created_at=datetime.utcnow(),
+        expires_at=datetime.utcnow() + timedelta(hours=8)
+    )
+    db_session.add(admin_session)
+    db_session.commit()
+
+    client.cookies.set("sso_session", admin_session.id)
+
+    # 1. Attempt to enforce biometric lock with 0 faces enrolled -> MUST FAIL
+    res_toggle_fail = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": True})
+    assert res_toggle_fail.status_code == 400
+    assert res_toggle_fail.json()["error"] == "no_face_enrolled"
+
+    # 2. Check GET /admin/face-profiles
+    res_profiles = client.get("/admin/face-profiles")
+    assert res_profiles.status_code == 200
+    assert res_profiles.json()["require_face_match"] is False
+    assert len(res_profiles.json()["faces"]) == 0
+
+    # 3. Enroll authorized face profile
+    fake_face = "data:image/jpeg;base64," + "b" * 120
+    res_enroll = client.post("/admin/face-profiles", json={
+        "label": "Primary Admin Profile",
+        "face_photo": fake_face
+    })
+    assert res_enroll.status_code == 200
+    enroll_data = res_enroll.json()
+    assert enroll_data["status"] == "ok"
+    assert enroll_data["require_face_match"] is True
+    face_id = enroll_data["face"]["id"]
+
+    # 4. Verify in DB: admin_faces has 1 profile with 128D embedding
+    db_session.refresh(admin)
+    assert len(admin.admin_faces) == 1
+    assert admin.admin_faces[0]["id"] == face_id
+    assert admin.admin_faces[0]["label"] == "Primary Admin Profile"
+    assert len(admin.admin_faces[0]["embedding"]) == 128
+    assert admin.require_face_match is True
+
+    # 5. Admin can now toggle off and on freely
+    res_toggle_off = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": False})
+    assert res_toggle_off.status_code == 200
+    assert res_toggle_off.json()["require_face_match"] is False
+
+    res_toggle_on = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": True})
+    assert res_toggle_on.status_code == 200
+    assert res_toggle_on.json()["require_face_match"] is True
+
+    # 6. Delete face profile -> automatically disables biometric lock
+    res_del = client.delete(f"/admin/face-profiles/{face_id}")
+    assert res_del.status_code == 200
+    assert res_del.json()["require_face_match"] is False
+
+    db_session.refresh(admin)
+    assert len(admin.admin_faces) == 0
+    assert admin.require_face_match is False
+
+    # 7. Attempting to re-enforce after deleting faces fails again
+    res_re_enforce = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": True})
+    assert res_re_enforce.status_code == 400
+    assert res_re_enforce.json()["error"] == "no_face_enrolled"
+

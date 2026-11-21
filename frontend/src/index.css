@@ -349,6 +349,55 @@ h1, h2, h3, .heading-serif {
   }
 }
 
+/* Responsive Admin Desk Layout */
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: #F5F1E8;
+  border-bottom: 1px solid #DDD6C7;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-layout {
+  display: flex;
+  min-height: calc(100vh - 69px);
+  width: 100%;
+}
+
+.admin-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid #DDD6C7;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #F3EFE7;
+  box-sizing: border-box;
+}
+
+.admin-content {
+  flex: 1 1 640px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 32px 40px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+}
+
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
 /* Base Split Auth Layout (Brand Panel on left, Form Panel on right) */
 .auth-split-layout {
   min-height: 100vh;
@@ -364,25 +413,59 @@ h1, h2, h3, .heading-serif {
     grid-template-columns: 1fr !important;
   }
 
-  /* Admin side navigation to horizontal scrollable tab bar */
-  .admin-sidebar-nav {
-    flex: 0 0 100% !important;
-    flex-direction: row !important;
-    overflow-x: auto !important;
-    border-right: none !important;
-    border-bottom: 1px solid var(--border) !important;
-    padding: 10px 14px !important;
-    gap: 8px !important;
-    -webkit-overflow-scrolling: touch;
-    white-space: nowrap;
-  }
-  .admin-sidebar-nav button {
-    flex-shrink: 0;
-    padding: 8px 14px !important;
-    font-size: 13.5px !important;
+  /* Admin Header */
+  .admin-header {
+    padding: 12px 16px !important;
   }
 
-  /* Split Auth Layout (Login, Forgot Password, Reset Password) */
+  /* Admin Layout stacks vertically on tablets & phones */
+  .admin-layout {
+    flex-direction: column !important;
+  }
+
+  /* Admin side navigation transforms to horizontal swipeable tab pill bar */
+  .admin-sidebar,
+  .admin-sidebar-nav {
+    width: 100% !important;
+    max-width: 100vw !important;
+    flex: 0 0 auto !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border, #DDD6C7) !important;
+    padding: 10px 14px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    gap: 8px !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    box-sizing: border-box !important;
+    background: #F3EFE7 !important;
+  }
+  .admin-sidebar::-webkit-scrollbar,
+  .admin-sidebar-nav::-webkit-scrollbar {
+    display: none !important;
+  }
+  .admin-sidebar button,
+  .admin-sidebar-nav button {
+    flex-shrink: 0 !important;
+    padding: 8px 16px !important;
+    font-size: 13.5px !important;
+    white-space: nowrap !important;
+    border-radius: 999px !important;
+  }
+
+  /* Admin main work area adapts smoothly */
+  .admin-content {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding: 20px 14px 36px !important;
+    gap: 20px !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Split Auth Layout (Login, Forgot Password, Reset Password, Renew) */
   .auth-split-layout {
     height: auto !important;
     min-height: 100vh !important;
@@ -458,10 +541,11 @@ h1, h2, h3, .heading-serif {
 
   /* Responsive tables */
   .table-responsive, table {
-    display: block;
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
   /* Modal responsiveness */
@@ -472,6 +556,34 @@ h1, h2, h3, .heading-serif {
     padding: 16px !important;
     border-radius: var(--radius-lg) !important;
     max-height: 94vh !important;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Admin Header compact mode */
+  .admin-header-sep,
+  .admin-header-title {
+    display: none !important;
+  }
+  .admin-header-actions {
+    width: 100% !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+  }
+  .admin-user-name {
+    display: none !important;
+  }
+
+  /* KPI grid 2-column layout */
+  .admin-kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* Search input full width */
+  .admin-search-wrapper,
+  .admin-search-wrapper input {
+    width: 100% !important;
   }
 }
 
@@ -496,6 +608,12 @@ h1, h2, h3, .heading-serif {
     width: 100%;
     justify-content: space-between;
     gap: 8px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .admin-kpi-grid {
+    grid-template-columns: 1fr !important;
   }
 }
 

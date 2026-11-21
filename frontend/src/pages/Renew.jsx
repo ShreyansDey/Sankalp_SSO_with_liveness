@@ -54,7 +54,7 @@ export default function Renew() {
   };
 
   return (
-    <div style={{
+    <div className="auth-split-layout" style={{
       minHeight: "100vh",
       display: "flex",
       flexWrap: "wrap",
@@ -64,7 +64,7 @@ export default function Renew() {
     }}>
 
       {/* LEFT: Editorial Brand Panel */}
-      <div style={{
+      <div className="auth-brand-panel" style={{
         flex: "1 1 480px",
         minWidth: "320px",
         background: "#12171E",
@@ -151,7 +151,7 @@ export default function Renew() {
       </div>
 
       {/* RIGHT: Form Panel */}
-      <div style={{
+      <div className="auth-form-panel" style={{
         flex: "1 1 480px",
         minWidth: "320px",
         display: "flex",

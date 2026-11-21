@@ -825,12 +825,21 @@ def decline_renewal_request(
 
 @router.get("/face-profiles")
 def get_admin_face_profiles(
+    db: Session = Depends(get_db),
     admin: User = Depends(require_admin_user)
 ):
     """List enrolled administrator face profiles and restriction status."""
     faces = admin.admin_faces if isinstance(admin.admin_faces, list) else []
+    valid_faces = [f for f in faces if isinstance(f, dict) and f.get("embedding")]
+
+    # Consistency rule: If no face profiles are enrolled, require_face_match CANNOT be True
+    if len(valid_faces) == 0 and admin.require_face_match:
+        admin.require_face_match = False
+        db.commit()
+        db.refresh(admin)
+
     return {
-        "require_face_match": bool(admin.require_face_match),
+        "require_face_match": bool(admin.require_face_match and len(valid_faces) > 0),
         "faces": [
             {
                 "id": f.get("id"),
@@ -838,7 +847,7 @@ def get_admin_face_profiles(
                 "photo_url": f"/admin/files/face-profile/{f.get('id')}",
                 "created_at": f.get("created_at")
             }
-            for f in faces if isinstance(f, dict)
+            for f in valid_faces
         ]
     }
 
@@ -927,6 +936,17 @@ def delete_admin_face_profile(
 ):
     """Remove an enrolled administrator face profile."""
     current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
+    
+    # Remove associated face photo file from disk
+    deleted_face = next((f for f in current_faces if isinstance(f, dict) and f.get("id") == face_id), None)
+    if deleted_face and deleted_face.get("photo_filename"):
+        photo_file = FACES_DIR / deleted_face["photo_filename"]
+        if photo_file.exists():
+            try:
+                photo_file.unlink()
+            except Exception:
+                pass
+
     updated_faces = [f for f in current_faces if isinstance(f, dict) and f.get("id") != face_id]
     
     admin.admin_faces = updated_faces
@@ -960,6 +980,19 @@ def toggle_admin_face_restriction(
     admin: User = Depends(require_admin_user)
 ):
     """Enable or disable biometric face lock requirement for admin sign-in."""
+    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
+    valid_faces = [f for f in current_faces if isinstance(f, dict) and f.get("embedding")]
+
+    # Strict Gate: Administrator MUST enroll at least one face profile before enforcing lock
+    if payload.enforce and len(valid_faces) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "no_face_enrolled",
+                "message": "Cannot enforce biometric face lock without enrolling at least one authorized administrator face profile. Please enroll your face below first."
+            }
+        )
+
     admin.require_face_match = payload.enforce
     db.commit()
     db.refresh(admin)
