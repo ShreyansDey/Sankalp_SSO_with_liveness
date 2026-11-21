@@ -78,6 +78,12 @@ export default function Admin() {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
+  useEffect(() => {
+    if (activeTab === "audit") {
+      fetchAudit();
+    }
+  }, [activeTab]);
+
   const loadInitialData = async () => {
     try {
       setLoading(true);
@@ -807,7 +813,11 @@ export default function Admin() {
 
           {/* TAB: AUDIT LOG */}
           {activeTab === "audit" && (
-            <AdminAuditTab auditLogs={auditLogs} />
+            <AdminAuditTab
+              auditLogs={auditLogs}
+              onRefresh={fetchAudit}
+              loading={loading}
+            />
           )}
 
           {/* TAB: CLEANUP */}
