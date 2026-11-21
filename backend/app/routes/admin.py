@@ -175,6 +175,12 @@ def mark_user_left(
             detail={"error": "user_not_found", "message": "User not found"}
         )
 
+    if user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "cannot_remove_admin", "message": "Administrators are protected and cannot be marked as left or removed."}
+        )
+
     now = datetime.utcnow()
     user.status = "disabled"
     user.disabled_reason = "left"
@@ -230,6 +236,12 @@ def disable_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "user_not_found", "message": "User not found"}
+        )
+
+    if user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "cannot_remove_admin", "message": "Administrators are protected and cannot be marked as left or removed."}
         )
 
     now = datetime.utcnow()
@@ -302,6 +314,12 @@ def delete_request(
             detail={"error": "user_not_found", "message": "User not found"}
         )
 
+    if user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "cannot_delete_admin", "message": "Administrator accounts are protected and cannot be deleted."}
+        )
+
     if user.status != "disabled":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -335,6 +353,12 @@ def delete_approve(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "user_not_found", "message": "User not found"}
+        )
+
+    if user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "cannot_delete_admin", "message": "Administrator accounts are protected and cannot be deleted."}
         )
 
     if user.status != "disabled" or not user.disabled_at:

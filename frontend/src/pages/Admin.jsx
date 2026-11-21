@@ -278,6 +278,10 @@ export default function Admin() {
   };
 
   const handleMarkLeft = async (user) => {
+    if (user.role === "admin") {
+      setErrorMessage("Administrators are protected and cannot be marked as left.");
+      return;
+    }
     if (!window.confirm(`Mark ${user.email} as left? This will instantly revoke access across all 5 clubs.`)) return;
     try {
       setStatusMessage(null);
