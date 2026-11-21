@@ -1,7 +1,44 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { formatIST } from "../../utils/time";
 
-export default function AdminAuditTab({ auditLogs }) {
+export default function AdminAuditTab({ auditLogs = [] }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
+  const logs = Array.isArray(auditLogs) ? auditLogs : [];
+  const totalItems = logs.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  // Auto-clamp page if data size changes
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const currentLogs = logs.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    const target = Math.max(1, Math.min(page, totalPages));
+    setCurrentPage(target);
+  };
+
+  // Generate page numbers to display cleanly
+  const getPageNumbers = () => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    if (currentPage <= 4) {
+      return [1, 2, 3, 4, 5, "...", totalPages];
+    }
+    if (currentPage >= totalPages - 3) {
+      return [1, "...", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages];
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div>
@@ -25,34 +62,134 @@ export default function AdminAuditTab({ auditLogs }) {
               </tr>
             </thead>
             <tbody>
-              {auditLogs.map((log) => (
-                <tr key={log.id} style={{ borderTop: "1px solid #E6E0D2" }}>
-                  <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                    {log.at_ist || formatIST(log.at)}
-                  </td>
-                  <td style={{ padding: "12px 20px" }}>
-                    <span style={{
-                      fontSize: "12px",
-                      fontFamily: "'JetBrains Mono', monospace",
-                      padding: "2px 8px",
-                      borderRadius: "4px",
-                      background: log.action.includes("left") || log.action.includes("denied") ? "#F6DDD4" : "#E4DDCF",
-                      color: log.action.includes("left") || log.action.includes("denied") ? "#9B3A22" : "#12171E"
-                    }}>
-                      {log.action}
-                    </span>
-                  </td>
-                  <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                    {log.actor_id || "System"}
-                  </td>
-                  <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                    {JSON.stringify(log.detail || {})}
+              {currentLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: "36px 20px", textAlign: "center", color: "#8A92A0", fontSize: "14px" }}>
+                    No audit log records found.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                currentLogs.map((log) => (
+                  <tr key={log.id} style={{ borderTop: "1px solid #E6E0D2" }}>
+                    <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px", whiteSpace: "nowrap" }}>
+                      {log.at_ist || formatIST(log.at)}
+                    </td>
+                    <td style={{ padding: "12px 20px" }}>
+                      <span style={{
+                        fontSize: "12px",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        background: log.action.includes("left") || log.action.includes("denied") || log.action.includes("deleted")
+                          ? "#F6DDD4"
+                          : log.action.includes("enrolled") || log.action.includes("approved")
+                          ? "#DDEFE2"
+                          : "#E4DDCF",
+                        color: log.action.includes("left") || log.action.includes("denied") || log.action.includes("deleted")
+                          ? "#9B3A22"
+                          : log.action.includes("enrolled") || log.action.includes("approved")
+                          ? "#1F6B3F"
+                          : "#12171E"
+                      }}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
+                      {log.actor_id || "System"}
+                    </td>
+                    <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px", maxWidth: "400px", wordBreak: "break-word" }}>
+                      {JSON.stringify(log.detail || {})}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* PAGINATION BAR */}
+        {totalItems > 0 && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 20px",
+            borderTop: "1px solid #E6E0D2",
+            background: "#F8F5EE",
+            flexWrap: "wrap",
+            gap: "12px"
+          }}>
+            <div style={{ fontSize: "13px", color: "#5A6270" }}>
+              Showing <strong>{totalItems === 0 ? 0 : startIndex + 1}</strong> to <strong>{endIndex}</strong> of <strong>{totalItems}</strong> events (10 per page)
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <button
+                type="button"
+                disabled={currentPage === 1}
+                onClick={() => goToPage(currentPage - 1)}
+                className="btn-outline"
+                style={{
+                  height: "32px",
+                  padding: "0 12px",
+                  fontSize: "12.5px",
+                  opacity: currentPage === 1 ? 0.45 : 1,
+                  cursor: currentPage === 1 ? "not-allowed" : "pointer"
+                }}
+              >
+                &larr; Previous
+              </button>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                {getPageNumbers().map((p, idx) => (
+                  p === "..." ? (
+                    <span key={`dots-${idx}`} style={{ padding: "0 6px", color: "#8A92A0", fontSize: "13px" }}>
+                      ...
+                    </span>
+                  ) : (
+                    <button
+                      key={`page-${p}`}
+                      type="button"
+                      onClick={() => goToPage(p)}
+                      style={{
+                        minWidth: "32px",
+                        height: "32px",
+                        padding: "0 8px",
+                        borderRadius: "6px",
+                        border: "1px solid",
+                        borderColor: currentPage === p ? "#12171E" : "#DDD6C7",
+                        background: currentPage === p ? "#12171E" : "#FFFFFF",
+                        color: currentPage === p ? "#FFFFFF" : "#12171E",
+                        fontSize: "12.5px",
+                        fontWeight: currentPage === p ? 700 : 500,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      {p}
+                    </button>
+                  )
+                ))}
+              </div>
+
+              <button
+                type="button"
+                disabled={currentPage === totalPages}
+                onClick={() => goToPage(currentPage + 1)}
+                className="btn-outline"
+                style={{
+                  height: "32px",
+                  padding: "0 12px",
+                  fontSize: "12.5px",
+                  opacity: currentPage === totalPages ? 0.45 : 1,
+                  cursor: currentPage === totalPages ? "not-allowed" : "pointer"
+                }}
+              >
+                Next &rarr;
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

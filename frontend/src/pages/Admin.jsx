@@ -264,8 +264,8 @@ export default function Admin() {
 
   const fetchAudit = async () => {
     try {
-      const data = await apiRequest("/admin/audit?limit=100");
-      setAuditLogs(data);
+      const data = await apiRequest("/admin/audit?limit=500");
+      setAuditLogs(Array.isArray(data) ? data : []);
     } catch {
       setErrorMessage("Failed to load audit logs");
     }
