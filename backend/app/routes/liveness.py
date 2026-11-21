@@ -16,6 +16,7 @@ from app.security import (
 from app.audit import log_audit
 from app.config import SSO_SESSION_HOURS, IS_PRODUCTION
 from app.deps import get_current_session
+from app.services.email_service import send_login_alert_email
 
 router = APIRouter(prefix="/liveness", tags=["liveness"])
 
@@ -321,6 +322,17 @@ def submit_result(
         actor_id=user.id,
         target_id=user.id,
         detail={"session_id": sso_sess.id, "via": "liveness"}
+    )
+
+    # Dispatch security sign-in notification
+    now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M:%S UTC")
+    send_login_alert_email(
+        to_email=user.email,
+        name=user.name,
+        ip=request.client.host if request.client else "Localhost",
+        user_agent=request.headers.get("user-agent"),
+        timestamp_str=now_str,
+        background=True
     )
 
     return {

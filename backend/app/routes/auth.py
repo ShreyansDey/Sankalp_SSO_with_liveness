@@ -22,7 +22,10 @@ from app.audit import log_audit
 from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN
 from app.deps import get_current_session, get_current_user_from_session
 from app.services.face_engine import extract_face_embedding
-from app.services.email_service import send_password_reset_email
+from app.services.email_service import (
+    send_password_reset_email,
+    send_application_submitted_emails
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -321,6 +324,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
             "status": "pending_approval",
             "dpdp_consent": payload.consent_given
         }
+    )
+
+    # Dispatch confirmation to applicant and alert to admin
+    send_application_submitted_emails(
+        applicant_name=new_user.name,
+        applicant_email=new_user.email,
+        background=True
     )
 
     return {

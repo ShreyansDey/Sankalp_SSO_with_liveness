@@ -20,6 +20,12 @@ from app.config import FRONTEND_ORIGIN
 from app.deps import require_admin_user
 from app.jobs.cleanup import run_cleanup_job
 from app.services.face_engine import extract_face_embedding
+from app.services.email_service import (
+    send_invite_email,
+    send_application_approved_email,
+    send_application_rejected_email,
+    send_marked_as_left_email
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -65,6 +71,16 @@ def create_invite(
     )
 
     invite_url = f"{FRONTEND_ORIGIN}/signup?token={raw_token}"
+
+    # Dispatch invite email to student in background
+    send_invite_email(
+        to_email=payload.email,
+        invite_link=invite_url,
+        role=payload.role,
+        term_end=str(payload.term_end) if payload.term_end else None,
+        background=True
+    )
+
     return {
         "status": "ok",
         "invite_id": invite.id,
@@ -173,6 +189,9 @@ def mark_user_left(
         target_id=user.id,
         detail={"user_email": user.email}
     )
+
+    # Dispatch status update email to student
+    send_marked_as_left_email(to_email=user.email, name=user.name, background=True)
 
     return {
         "status": "ok",
@@ -531,6 +550,9 @@ def approve_application(
         }
     )
 
+    # Dispatch approval welcome email to student
+    send_application_approved_email(to_email=user.email, name=user.name, background=True)
+
     return {
         "status": "ok",
         "message": f"Application for {user.name} ({user.email}) has been approved. The member can now log in.",
@@ -587,6 +609,9 @@ def reject_application(
         target_id=user.id,
         detail={"applicant_email": user.email, "applicant_name": user.name, "privacy_compliance": "purged_on_rejection"}
     )
+
+    # Dispatch rejection privacy notification to student
+    send_application_rejected_email(to_email=user.email, name=user.name, background=True)
 
     return {
         "status": "ok",
