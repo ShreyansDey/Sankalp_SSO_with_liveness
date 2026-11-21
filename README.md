@@ -303,17 +303,17 @@ Sankalp SSO protects five distinct institutional portals, each implementing OAut
 2. **Configure Environment Variables**:
    In `backend/.env` (or copy from `backend/.env.example`):
    ```ini
-   DATABASE_URL=postgresql://postgres:your_password@localhost:5432/sankalp_sso
-   SECRET_KEY=generate_a_secure_random_key_min_32_chars
-   SMTP_HOST=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USER=your_email@gmail.com
-   SMTP_PASS=your_16_char_app_password
-   SMTP_SECURE=tls
-   EMAIL_FROM=your_email@gmail.com
-   EMAIL_FROM_NAME="Real Access (Sankalp SSO)"
-   FRONTEND_ORIGIN=http://localhost:5180
-   PURGE_GRACE_HOURS=48
+    DATABASE_URL=postgresql://postgres:your_password@localhost:5432/sankalp_sso
+    SECRET_KEY=generate_a_secure_random_key_min_32_chars
+    SMTP_HOST=smtp.gmail.com
+    SMTP_PORT=587
+    SMTP_USER=your_email@gmail.com
+    SMTP_PASS=your_16_char_app_password
+    SMTP_SECURE=tls
+    EMAIL_FROM=your_email@gmail.com
+    EMAIL_FROM_NAME="Real Access (Sankalp SSO)"
+    FRONTEND_ORIGIN=http://localhost:5180
+    PURGE_GRACE_HOURS=48
    ```
 
 3. **Install Backend Dependencies & Seed Database**:
