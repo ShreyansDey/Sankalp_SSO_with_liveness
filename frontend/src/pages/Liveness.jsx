@@ -510,7 +510,7 @@ export default function Liveness() {
     }
 
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-      setWarningNotice("No face detected. Please face the camera.");
+      setWarningNotice(stepRef.current === 1 ? "Turned too far. Turn only slightly (~20°) so the camera can see both eyes." : "No face detected. Please face the camera.");
       return;
     }
 
@@ -589,15 +589,16 @@ export default function Liveness() {
 
     const activeStep = stepRef.current;
 
-    // STEP 1: Head Turn (Direction dictated by server challenge, requires 3 consecutive frames)
+    // STEP 1: Head Turn (Direction dictated by server challenge, requires 2 consecutive frames)
     if (activeStep === 1) {
       const ch = challengeRef.current || challenge;
       const targetTurn = ch?.type === "turn_right" ? "turn_right" : "turn_left";
-      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.63 : yawRatio < 0.37;
+      // Natural ~15-20° turn angle (0.42 / 0.58) prevents losing FaceMesh tracking
+      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.58 : yawRatio < 0.42;
 
       if (isTurned) {
         turnStateRef.current.turnFrames = (turnStateRef.current.turnFrames || 0) + 1;
-        if (turnStateRef.current.turnFrames >= 3) {
+        if (turnStateRef.current.turnFrames >= 2) {
           setStep1Passed(true);
           stepRef.current = 2;
           setCurrentStep(2);
@@ -610,7 +611,7 @@ export default function Liveness() {
     }
     // STEP 2: Return to Center & Dynamically Calibrate Open-Eye Baseline
     else if (activeStep === 2) {
-      const isCentered = yawRatio >= 0.43 && yawRatio <= 0.57;
+      const isCentered = yawRatio >= 0.42 && yawRatio <= 0.58;
 
       if (isCentered) {
         blinkStateRef.current.centeredFrames = (blinkStateRef.current.centeredFrames || 0) + 1;
@@ -621,8 +622,8 @@ export default function Liveness() {
           setBaselineEAR(blinkStateRef.current.baseline);
         }
 
-        // Require 5 stable centered frames (~160-200ms)
-        if (blinkStateRef.current.centeredFrames >= 5) {
+        // Require 3 stable centered frames (~100ms)
+        if (blinkStateRef.current.centeredFrames >= 3) {
           setStep2Passed(true);
           stepRef.current = 3;
           setCurrentStep(3);
@@ -710,7 +711,7 @@ export default function Liveness() {
     if (currentStep === 1) {
       const ch = challengeRef.current || challenge;
       const dir = ch?.type === "turn_left" ? "left" : "right";
-      return `Turn head ${dir}`;
+      return `Turn head slightly ${dir}`;
     } else if (currentStep === 2) {
       return "Return to center";
     } else {
@@ -720,11 +721,11 @@ export default function Liveness() {
 
   const getStepDescription = () => {
     if (currentStep === 1) {
-      return "Turn your head to the side to prove natural 3D depth. A photo cannot do this.";
+      return "Turn your head slightly to the side (about 20°). Keep your face in view.";
     } else if (currentStep === 2) {
       return "Look straight ahead towards the camera to confirm responsive control.";
     } else {
-      return "Look at the camera and blink slowly. A printed photo or replay cannot do this.";
+      return "Look at the camera and blink naturally twice. A photo cannot do this.";
     }
   };
 
