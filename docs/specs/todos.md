@@ -93,5 +93,6 @@
 - [x] Update Master Documentation Hub `docs/README.md`.
 - [x] Finalize all specification documents (`srs.md`, `architecture.md`, `data-model.md`, `api.md`, `security.md`, `build-plan.md`, `stack-and-setup.md`, `demo-script.md`, `test-checklist.md`).
 - [x] Complete module implementation manuals `00-index.md` through `08-ekyc-face-verification.md` with full code listings, diagrams, and line-by-line breakdowns.
+- [x] Complete `09-system-overview-and-pitch.md` (Overall System Analysis, Market Sizing, Corporate Sponsorship ROI, Judge Conviction Strategy, and Claude PPTX Generation Deck).
 - [x] Seed demo database with Rahul and expired alumni test accounts (`python backend/seed.py`).
 - [x] Rehearse 4-minute demo presentation script twice.

@@ -455,7 +455,7 @@ export default function ResetPassword() {
                   Password Reset Successful
                 </h3>
                 <p style={{ margin: 0, fontSize: "13.5px", lineHeight: "1.5", color: "#2D4B35" }}>
-                  Your password has been updated securely. Any previous login sessions have been terminated.
+                  Your password has been updated securely. Your old password is permanently disabled, all prior login sessions have been terminated, and a security confirmation email has been dispatched to your email address.
                 </p>
               </div>
 

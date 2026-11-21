@@ -24,7 +24,8 @@ from app.services.email_service import (
     send_mark_as_left_email,
     send_renewal_status_email,
     send_final_purge_takeout_email,
-    send_invite_email
+    send_invite_email,
+    to_ist_str
 )
 from app.services.face_engine import extract_face_embedding
 
@@ -406,12 +407,13 @@ def get_audit_log(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin_user)
 ):
-    """FR7: Newest first audit log entries."""
+    """FR7: Newest first audit log entries with IST timestamps."""
     entries = db.query(AuditLog).order_by(AuditLog.at.desc()).limit(limit).all()
     return [
         {
             "id": e.id,
-            "at": e.at.isoformat(),
+            "at": (e.at.isoformat() + "Z") if not e.at.isoformat().endswith("Z") else e.at.isoformat(),
+            "at_ist": to_ist_str(e.at),
             "actor_id": e.actor_id,
             "action": e.action,
             "target_id": e.target_id,
@@ -687,6 +689,7 @@ def list_renewal_requests(
             "reason": r.reason,
             "status": r.status,
             "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at_ist": to_ist_str(r.created_at) if r.created_at else None,
             "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
             "admin_notes": r.admin_notes,
             "user_status": user.status if user else "purged",
@@ -863,7 +866,7 @@ def add_admin_face_profile(
         "label": payload.label.strip() or "Admin Face",
         "embedding": embedding,
         "photo_filename": face_filename,
-        "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        "created_at": datetime.utcnow().isoformat() + "Z"
     }
 
     current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []

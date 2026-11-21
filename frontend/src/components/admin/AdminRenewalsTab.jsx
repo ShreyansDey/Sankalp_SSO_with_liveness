@@ -1,4 +1,5 @@
 import React from "react";
+import { formatIST } from "../../utils/time";
 
 export default function AdminRenewalsTab({
   renewals,
@@ -48,6 +49,11 @@ export default function AdminRenewalsTab({
                     <td style={{ padding: "14px 18px" }}>
                       <div style={{ fontWeight: 600, color: "#12171E" }}>{r.name}</div>
                       <div style={{ fontSize: "12px", color: "#5A6270" }}>{r.email}</div>
+                      {(r.created_at_ist || r.created_at) && (
+                        <div style={{ fontSize: "11px", color: "#8A92A0", marginTop: "2px" }}>
+                          Requested: {r.created_at_ist || formatIST(r.created_at)}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: "14px 18px" }}>
                       <span style={{

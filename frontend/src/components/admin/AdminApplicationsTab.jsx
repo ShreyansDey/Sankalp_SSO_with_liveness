@@ -1,4 +1,5 @@
 import React from "react";
+import { formatIST, formatISTDate } from "../../utils/time";
 
 export default function AdminApplicationsTab({
   applications,
@@ -86,7 +87,7 @@ export default function AdminApplicationsTab({
                 </div>
 
                 <div style={{ fontSize: "13px", color: "#5A6270", textAlign: "right" }}>
-                  <div>Submitted: {app.created_at ? new Date(app.created_at).toLocaleString() : "Recently"}</div>
+                  <div>Submitted: {formatIST(app.created_at)}</div>
                   {app.term_end && <div>Term End: {app.term_end}</div>}
                 </div>
               </div>

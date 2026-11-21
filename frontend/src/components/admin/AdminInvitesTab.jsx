@@ -1,4 +1,5 @@
 import React from "react";
+import { formatIST, formatISTDate } from "../../utils/time";
 
 export default function AdminInvitesTab({
   invites,
@@ -63,10 +64,10 @@ export default function AdminInvitesTab({
                       {inv.role}
                     </td>
                     <td style={{ padding: "14px 18px", color: "#5A6270" }}>
-                      {inv.term_end ? new Date(inv.term_end).toLocaleDateString() : "No Expiry"}
+                      {inv.term_end ? formatISTDate(inv.term_end) : "No Expiry"}
                     </td>
                     <td style={{ padding: "14px 18px", color: "#5A6270" }}>
-                      {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : "\u2013"}
+                      {inv.expires_at ? formatISTDate(inv.expires_at) : "\u2013"}
                     </td>
                     <td style={{ padding: "14px 18px" }}>
                       {inv.status === "accepted" && (

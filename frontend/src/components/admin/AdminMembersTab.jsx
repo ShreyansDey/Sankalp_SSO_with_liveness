@@ -1,4 +1,5 @@
 import React from "react";
+import { formatIST, formatISTDate } from "../../utils/time";
 
 export default function AdminMembersTab({
   users,
@@ -152,7 +153,7 @@ export default function AdminMembersTab({
               <div>ROLE</div>
               <div>STATUS</div>
               <div>TERM ENDS</div>
-              <div>LAST ACTIVE</div>
+              <div>LAST ACTIVE (IST)</div>
               <div style={{ textAlign: "right" }}>ACTIONS</div>
             </div>
 
@@ -203,12 +204,12 @@ export default function AdminMembersTab({
 
                     {/* Term End */}
                     <div style={{ fontSize: "13px", color: isDisabled ? "#4A5260" : "#12171E" }}>
-                      {u.term_end ? new Date(u.term_end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Indefinite"}
+                      {u.term_end ? formatISTDate(u.term_end) : "Indefinite"}
                     </div>
 
                     {/* Last Active */}
                     <div style={{ fontSize: "13px", color: "#5A6270" }}>
-                      {u.last_active_at ? new Date(u.last_active_at).toLocaleDateString() : "Never"}
+                      {u.last_active_at ? formatIST(u.last_active_at) : "Never"}
                     </div>
 
                     {/* Action Button */}

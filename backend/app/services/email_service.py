@@ -7,6 +7,20 @@ import email.utils
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
+def get_ist_now_str() -> str:
+    """Returns formatted current Indian Standard Time (IST - UTC+05:30)."""
+    return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
+
+def to_ist_str(dt: Optional[datetime] = None) -> str:
+    if dt is None:
+        return get_ist_now_str()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
 
 from app.config import (
     SMTP_HOST,
@@ -244,7 +258,7 @@ def build_login_alert_email(name: str, ip: str, user_agent: str, time_str: str) 
 Security Notice: A new sign-in was detected on your Real Access account.
 
 Details:
-- Time: {time_str} UTC
+- Time: {time_str}
 - IP Address: {ip}
 - Device / Browser: {user_agent}
 
@@ -277,7 +291,7 @@ If you did not authorize this login, please contact your administrator or reset 
                 Hello <strong>{greeting}</strong>, your account just completed a successful camera liveness login.
               </p>
               <div style="background-color: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13.5px; color: #3A4250;">
-                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str} UTC</p>
+                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str}</p>
                 <p style="margin: 4px 0;"><strong>IP Address:</strong> {ip}</p>
                 <p style="margin: 4px 0; word-break: break-all;"><strong>Device:</strong> {user_agent}</p>
               </div>
@@ -298,7 +312,7 @@ If you did not authorize this login, please contact your administrator or reset 
 
 def send_login_alert_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
     """Dispatches login security alert email asynchronously."""
-    time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    time_str = get_ist_now_str()
     subject = "Security Alert: New Sign-in to Real Access"
     text_content, html_content = build_login_alert_email(name, ip, user_agent, time_str)
     if background:
@@ -396,20 +410,22 @@ def send_invite_email(to_email: str, invite_link: str, role: str = "member", bac
         return send_email(to_email, subject, text_content, html_content)
 
 
-def build_login_alert_email(name: str, ip: str, user_agent: str, time_str: str) -> tuple[str, str]:
-    """Generate email templates for login security alerts."""
-    greeting = name.strip() if name and name.strip() else "User"
+def build_password_changed_email(name: str, ip: str, user_agent: str, time_str: str) -> tuple[str, str]:
+    """Generate email templates when password has been successfully changed."""
+    greeting = name.strip() if name and name.strip() else "Member"
     text_content = f"""Hello {greeting},
 
-Security Notice: A new sign-in was detected on your Real Access account.
+Security Notice: The password for your Real Access account was just updated.
 
 Details:
-- Time: {time_str} UTC
+- Time: {time_str}
 - IP Address: {ip}
 - Device / Browser: {user_agent}
 
-If this was you, no action is needed.
-If you did not authorize this login, please contact your administrator or reset your password immediately.
+Your previous password has been permanently disabled, and all existing active sessions have been invalidated across all campus club portals.
+
+If you made this change, no further action is required.
+If you did NOT authorize this change, please contact your university administrator immediately.
 
 — Team Sankalp (Real Person, Real Access SSO)
 """
@@ -417,7 +433,7 @@ If you did not authorize this login, please contact your administrator or reset 
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Security Alert: New Sign-in</title>
+  <title>Security Alert: Password Changed</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #12171E;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
@@ -432,18 +448,18 @@ If you did not authorize this login, please contact your administrator or reset 
           </tr>
           <tr>
             <td style="padding: 32px 36px;">
-              <h2 style="margin: 0 0 16px; font-size: 20px; font-family: Georgia, serif; color: #12171E;">New Sign-In Detected</h2>
+              <h2 style="margin: 0 0 16px; font-size: 20px; font-family: Georgia, serif; color: #12171E;">Password Changed Successfully</h2>
               <p style="color: #5A6270; font-size: 15px; line-height: 1.55; margin: 0 0 20px;">
-                Hello <strong>{greeting}</strong>, your account just completed a successful camera liveness login.
+                Hello <strong>{greeting}</strong>, your account password was recently changed. Your previous password has been permanently disabled, and all active login sessions have been terminated.
               </p>
               <div style="background-color: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13.5px; color: #3A4250;">
-                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str} UTC</p>
+                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str}</p>
                 <p style="margin: 4px 0;"><strong>IP Address:</strong> {ip}</p>
                 <p style="margin: 4px 0; word-break: break-all;"><strong>Device:</strong> {user_agent}</p>
               </div>
               <p style="color: #8A92A0; font-size: 12px; margin: 20px 0 0; line-height: 1.5; border-top: 1px solid #EAE5D9; padding-top: 16px;">
-                If this was you, you can safely ignore this alert.<br/>
-                If you did not perform this login, please contact an administrator immediately.
+                If you performed this change, you can safely disregard this email.<br/>
+                <strong>Did not change your password?</strong> Please contact an administrator immediately.
               </p>
             </td>
           </tr>
@@ -456,11 +472,11 @@ If you did not authorize this login, please contact your administrator or reset 
     return text_content, html_content
 
 
-def send_login_alert_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
-    """Dispatches login security alert email asynchronously."""
-    time_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    subject = "Security Alert: New Sign-in to Real Access"
-    text_content, html_content = build_login_alert_email(name, ip, user_agent, time_str)
+def send_password_changed_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
+    """Dispatches password changed security alert email asynchronously."""
+    time_str = get_ist_now_str()
+    subject = "Security Alert: Real Access Password Changed"
+    text_content, html_content = build_password_changed_email(name, ip, user_agent, time_str)
     if background:
         thread = threading.Thread(
             target=send_email,
@@ -468,7 +484,7 @@ def send_login_alert_email(to_email: str, name: str, ip: str, user_agent: str, b
             daemon=True
         )
         thread.start()
-        logger.info("Dispatched login alert email to %s", to_email)
+        logger.info("Dispatched password changed notification email to %s", to_email)
         return True
     else:
         return send_email(to_email, subject, text_content, html_content)

@@ -1,4 +1,5 @@
 import React from "react";
+import { formatIST } from "../../utils/time";
 
 export default function AdminAuditTab({ auditLogs }) {
   return (
@@ -17,7 +18,7 @@ export default function AdminAuditTab({ auditLogs }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
             <thead>
               <tr style={{ background: "#F3EFE7", textAlign: "left", fontSize: "12px", color: "#5A6270", letterSpacing: "1px" }}>
-                <th style={{ padding: "12px 20px" }}>TIMESTAMP</th>
+                <th style={{ padding: "12px 20px" }}>TIMESTAMP (IST)</th>
                 <th style={{ padding: "12px 20px" }}>ACTION</th>
                 <th style={{ padding: "12px 20px" }}>ACTOR</th>
                 <th style={{ padding: "12px 20px" }}>DETAILS</th>
@@ -27,7 +28,7 @@ export default function AdminAuditTab({ auditLogs }) {
               {auditLogs.map((log) => (
                 <tr key={log.id} style={{ borderTop: "1px solid #E6E0D2" }}>
                   <td style={{ padding: "12px 20px", color: "#5A6270", fontSize: "13px" }}>
-                    {new Date(log.at).toLocaleString()}
+                    {log.at_ist || formatIST(log.at)}
                   </td>
                   <td style={{ padding: "12px 20px" }}>
                     <span style={{

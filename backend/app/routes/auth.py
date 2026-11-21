@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
-from app.models import User, Invite, SsoSession, PasswordResetToken, RenewalRequest
+from app.models import User, Invite, SsoSession, PasswordResetToken, RenewalRequest, RefreshToken, AuthCode
 from app.security import (
     hash_password,
     verify_password,
@@ -22,7 +22,7 @@ from app.audit import log_audit
 from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN, PURGE_GRACE_HOURS
 from app.deps import get_current_session, get_current_user_from_session
 from app.services.face_engine import extract_face_embedding
-from app.services.email_service import send_password_reset_email
+from app.services.email_service import send_password_reset_email, send_password_changed_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -703,10 +703,11 @@ def verify_reset_token(payload: VerifyResetTokenRequest, db: Session = Depends(g
     }
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
     """
     Submits a new password with the verified reset token.
-    Updates the password hash, marks token as used, and invalidates all active sessions.
+    Updates the password hash, permanently disables the old password, marks token as used,
+    invalidates all active sessions and refresh tokens across all portals, and emails the user.
     """
     if len(payload.password) < 8:
         raise HTTPException(
@@ -743,13 +744,23 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
             detail={"error": "invalid_user", "message": "User account is inactive or not found."}
         )
 
-    # 1. Update user password
+    # Prevent reusing the current password
+    if verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "password_reused",
+                "message": "New password cannot be the same as your old password. Please choose a different password."
+            }
+        )
+
+    # 1. Update user password (permanently overwrites and disables old password hash)
     user.password_hash = hash_password(payload.password)
 
-    # 2. Invalidate reset token
+    # 2. Invalidate reset token permanently
     reset_tok.used_at = datetime.utcnow()
 
-    # 3. Invalidate all active SSO sessions for this user for immediate revocation
+    # 3. Invalidate ALL active SSO sessions for this user for immediate revocation across all devices
     active_sessions = db.query(SsoSession).filter(
         SsoSession.user_id == user.id,
         SsoSession.revoked_at.is_(None)
@@ -757,19 +768,41 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     for s in active_sessions:
         s.revoked_at = datetime.utcnow()
 
+    # 4. Invalidate all active OAuth refresh tokens
+    active_refresh = db.query(RefreshToken).filter(
+        RefreshToken.user_id == user.id,
+        RefreshToken.revoked_at.is_(None)
+    ).all()
+    for rt in active_refresh:
+        rt.revoked_at = datetime.utcnow()
+
+    # 5. Revoke any pending authorization codes
+    db.query(AuthCode).filter(
+        AuthCode.user_id == user.id,
+        AuthCode.used_at.is_(None)
+    ).delete(synchronize_session=False)
+
     db.commit()
+
+    # 6. Deliver security notification email directly to requested user
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "Unknown IP")
+    user_agent = request.headers.get("user-agent", "Unknown Device / Browser")
+    try:
+        send_password_changed_email(user.email, user.name, client_ip, user_agent, background=True)
+    except Exception:
+        pass
 
     log_audit(
         db,
         action="password_reset_completed",
         actor_id=user.id,
         target_id=user.id,
-        detail={"email": user.email}
+        detail={"email": user.email, "sessions_revoked": len(active_sessions), "refresh_tokens_revoked": len(active_refresh)}
     )
 
     return {
         "status": "ok",
-        "message": "Password has been successfully updated. You may now sign in with your new password."
+        "message": "Password has been successfully updated and your old password is permanently disabled. All existing sessions have been terminated. You may now sign in with your new password."
     }
 
 @router.post("/renew")

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { formatIST } from "../../utils/time";
 
 /**
  * ==============================================================================
@@ -217,7 +218,7 @@ export default function AdminFaceLockTab({
                     {face.label}
                   </div>
                   <div style={{ fontSize: "12px", color: "#5A6270", marginTop: "2px" }}>
-                    Enrolled: {face.created_at ? face.created_at.slice(0, 10) : "Active"}
+                    Enrolled: {face.created_at ? formatIST(face.created_at) : "Active"}
                   </div>
                 </div>
 
