@@ -50,7 +50,8 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
         # Single-Page Application (SPA) routing:
         # If the user lands on "/" or the OAuth redirect "/callback?code=...",
         # serve index.html directly so client-side JavaScript handles the token exchange.
-        if self.path == "/" or self.path.startswith("/callback"):
+        clean_path = self.path.split("?")[0].rstrip("/")
+        if clean_path in ["", "/", "/index.html"] or clean_path.endswith("/callback") or clean_path == "/callback":
             self.path = "/index.html"
         return super().do_GET()
 

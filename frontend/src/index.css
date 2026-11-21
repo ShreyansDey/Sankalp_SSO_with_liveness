@@ -349,6 +349,15 @@ h1, h2, h3, .heading-serif {
   }
 }
 
+/* Base Split Auth Layout (Brand Panel on left, Form Panel on right) */
+.auth-split-layout {
+  min-height: 100vh;
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 @media (max-width: 900px) {
   /* Stack 2-column layouts on tablets and mobile */
   .grid-2col, [style*="grid-template-columns: 1fr 1fr"], [style*="gridTemplateColumns: \"1fr 1fr\""] {

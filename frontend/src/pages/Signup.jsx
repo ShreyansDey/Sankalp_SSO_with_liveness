@@ -70,6 +70,10 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  // Field warning notices
+  const [nameWarning, setNameWarning] = useState("");
+  const [phoneWarning, setPhoneWarning] = useState("");
+
   const selectedCountry = COUNTRIES.find((c) => c.code === selectedCountryCode) || COUNTRIES[0];
 
   const handleCountryChange = (e) => {
@@ -79,14 +83,31 @@ export default function Signup() {
     if (phoneNumber.length > country.digits) {
       setPhoneNumber(phoneNumber.slice(0, country.digits));
     }
+    setPhoneWarning("");
   };
 
   const handlePhoneChange = (e) => {
-    // Strictly numeric digits: strip out text and letters
-    const digitsOnly = e.target.value.replace(/\D/g, "");
+    const raw = e.target.value;
+    if (/[a-zA-Z]/.test(raw)) {
+      setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
+    } else {
+      setPhoneWarning("");
+    }
+    const digitsOnly = raw.replace(/\D/g, "");
     if (digitsOnly.length <= selectedCountry.digits) {
       setPhoneNumber(digitsOnly);
     }
+  };
+
+  const handleNameChange = (e) => {
+    const raw = e.target.value;
+    if (/\d/.test(raw)) {
+      setNameWarning("Numbers are not permitted in Full Name. Letters only.");
+    } else {
+      setNameWarning("");
+    }
+    const lettersOnly = raw.replace(/[^a-zA-Z\s'.\-]/g, "");
+    setName(lettersOnly);
   };
 
   // Consent State
@@ -456,11 +477,26 @@ export default function Signup() {
                     placeholder="e.g. Ananya Sen"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z\s'.\-]/g, ""))}
+                    onChange={handleNameChange}
+                    onKeyDown={(e) => {
+                      if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                        setNameWarning("Numbers are not permitted in Full Name. Letters only.");
+                      }
+                    }}
                     className="input-editorial"
-                    style={{ height: "42px", fontSize: "14px" }}
+                    style={{
+                      height: "42px",
+                      fontSize: "14px",
+                      border: nameWarning ? "1px solid #DC2626" : undefined
+                    }}
                   />
-                  <div style={{ fontSize: "11px", color: "#5A6270" }}>Letters only (no numbers allowed)</div>
+                  {nameWarning ? (
+                    <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600 }}>
+                      [!] {nameWarning}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "11px", color: "#5A6270" }}>Letters only (no numbers allowed)</div>
+                  )}
                 </div>
 
                 {/* Phone Number with Country Code Dropdown */}
@@ -473,7 +509,7 @@ export default function Signup() {
                     alignItems: "stretch",
                     width: "100%",
                     borderRadius: "7px",
-                    border: "1px solid #C4BCAF",
+                    border: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
                     background: "#FDFBF7",
                     overflow: "hidden",
                     boxSizing: "border-box"
@@ -484,7 +520,7 @@ export default function Signup() {
                       display: "flex",
                       alignItems: "center",
                       background: "#EBE5D8",
-                      borderRight: "1px solid #C4BCAF",
+                      borderRight: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
                       flexShrink: 0
                     }}>
                       <select
@@ -534,6 +570,11 @@ export default function Signup() {
                       placeholder={selectedCountry.placeholder}
                       value={phoneNumber}
                       onChange={handlePhoneChange}
+                      onKeyDown={(e) => {
+                        if (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                          setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
+                        }
+                      }}
                       maxLength={selectedCountry.digits}
                       style={{
                         flex: 1,
@@ -549,15 +590,21 @@ export default function Signup() {
                     />
                   </div>
                   {/* Character/digit counter & helper */}
-                  <div style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "11px",
-                    color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270"
-                  }}>
-                    <span>Numbers only ({selectedCountry.name})</span>
-                    <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
-                  </div>
+                  {phoneWarning ? (
+                    <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600 }}>
+                      [!] {phoneWarning}
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "11px",
+                      color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270"
+                    }}>
+                      <span>Numbers only ({selectedCountry.name})</span>
+                      <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Password */}

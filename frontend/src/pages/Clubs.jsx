@@ -86,13 +86,21 @@ export default function Clubs() {
     );
   }
 
+  const isLocalHost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const getClubUrl = (port, path) => {
+    if (isLocalHost) {
+      return `http://localhost:${port}`;
+    }
+    return `${window.location.origin}/${path}`;
+  };
+
   // 5 Active University Campus Clubs
   const activeClubs = [
     {
       id: "app-b",
       name: "Robotics Society",
       desc: "Build nights, parts inventory and competition teams.",
-      url: "http://localhost:5175",
+      url: getClubUrl(5175, "app-b"),
       image: "/images/robotics.jpg",
       roleText: "Member · until 30 Jun 2027",
     },
@@ -100,7 +108,7 @@ export default function Clubs() {
       id: "app-a",
       name: "Photography Club",
       desc: "Shared gallery, gear bookings and photo walks.",
-      url: "http://localhost:5174",
+      url: getClubUrl(5174, "app-a"),
       image: "/images/photography.jpg",
       roleText: "Member · until 30 Jun 2027",
     },
@@ -108,7 +116,7 @@ export default function Clubs() {
       id: "app-c",
       name: "Coding & AI Club",
       desc: "Weekly challenges, project showcase and hackathon teams.",
-      url: "http://localhost:5176",
+      url: getClubUrl(5176, "app-c"),
       image: "/images/coding.jpg",
       roleText: "Member · until 30 Jun 2027",
     },
@@ -116,7 +124,7 @@ export default function Clubs() {
       id: "app-d",
       name: "Chess & Mind Sports",
       desc: "Tournament brackets, ELO ranking and blitz arena nights.",
-      url: "http://localhost:5177",
+      url: getClubUrl(5177, "app-d"),
       image: "/images/chess.jpg",
       roleText: "Member · until 31 Mar 2027",
     },
@@ -124,7 +132,7 @@ export default function Clubs() {
       id: "app-e",
       name: "Athletics & Sports",
       desc: "Gymnasium access, team rosters and fitness lockers.",
-      url: "http://localhost:5178",
+      url: getClubUrl(5178, "app-e"),
       image: "/images/athletics.jpg",
       roleText: "Member · until 30 Jun 2027",
     }
@@ -321,7 +329,7 @@ export default function Clubs() {
               }}
             >
               <div style={{
-                height: "140px",
+                height: "190px",
                 position: "relative",
                 overflow: "hidden"
               }}>
@@ -331,7 +339,8 @@ export default function Clubs() {
                   style={{
                     width: "100%",
                     height: "100%",
-                    objectFit: "cover"
+                    objectFit: "cover",
+                    objectPosition: club.id === "app-a" ? "center 25%" : (club.id === "app-e" ? "center 45%" : "center")
                   }}
                 />
               </div>
@@ -384,7 +393,7 @@ export default function Clubs() {
             overflow: "hidden"
           }}>
             <div style={{
-              height: "140px",
+              height: "190px",
               position: "relative",
               overflow: "hidden"
             }}>
@@ -395,6 +404,7 @@ export default function Clubs() {
                   width: "100%",
                   height: "100%",
                   objectFit: "cover",
+                  objectPosition: "center 30%",
                   filter: "brightness(0.92)"
                 }}
               />

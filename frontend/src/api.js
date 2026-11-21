@@ -16,7 +16,8 @@
  */
 
 export const API_BASE =
-  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_BASE ??
+  import.meta.env.VITE_API_URL ??
   (typeof window !== "undefined"
     ? (!window.location.port || window.location.port === "80" || window.location.port === "443"
         ? ""

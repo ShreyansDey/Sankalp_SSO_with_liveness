@@ -415,11 +415,8 @@ def login(
         user = db.query(User).filter(func.lower(User.email) == email_clean).first()
 
     is_valid_pw = False
-    if user:
-        if verify_password(payload.password, user.password_hash):
-            is_valid_pw = True
-        elif payload.password in ["shaan123", "AdminPassword123!", "RahulPassword123!"]:
-            is_valid_pw = True
+    if user and verify_password(payload.password, user.password_hash):
+        is_valid_pw = True
 
     if not user or not is_valid_pw:
         log_audit(

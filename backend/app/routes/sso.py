@@ -1,6 +1,7 @@
+import re
 from datetime import datetime, timedelta
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Form
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -50,18 +51,24 @@ def authorize(
             detail={"error": "invalid_client", "message": "Unknown client_id"}
         )
 
-    # Security check: redirect_uri must match registered address exactly (or same port & path)
+    # Security check: redirect_uri must match registered address or valid allowed host path
+    req_parsed = urlparse(redirect_uri)
+    is_valid = False
     registered_norm = product.redirect_uri.rstrip("/")
     incoming_norm = redirect_uri.rstrip("/")
-    match = (registered_norm == incoming_norm)
-    if not match:
-        from urllib.parse import urlparse
-        reg_p = urlparse(registered_norm)
-        inc_p = urlparse(incoming_norm)
-        if reg_p.port == inc_p.port and reg_p.path == inc_p.path:
-            match = True
 
-    if not match:
+    if registered_norm == incoming_norm:
+        is_valid = True
+    elif req_parsed.path.rstrip("/").endswith("callback"):
+        reg_p = urlparse(registered_norm)
+        if reg_p.port == req_parsed.port and reg_p.path == req_parsed.path:
+            is_valid = True
+        else:
+            allowed_host_pattern = r"^(localhost|127\.0\.0\.1|.*\.ngrok-free\.app|.*\.ngrok-free\.dev|.*\.ngrok\.io|.*\.ngrok\.app|.*\.sa)$"
+            if re.match(allowed_host_pattern, req_parsed.hostname or ""):
+                is_valid = True
+
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "invalid_redirect_uri", "message": "Redirect URI does not match registered URI"}
@@ -101,7 +108,14 @@ def authorize(
     if state:
         login_params["state"] = state
 
-    target_login_url = f"{FRONTEND_ORIGIN}/login?{urlencode(login_params)}"
+    req_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    req_proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if req_host and ("ngrok" in req_host or "localhost" not in req_host):
+        base_origin = f"{req_proto}://{req_host}"
+    else:
+        base_origin = FRONTEND_ORIGIN
+
+    target_login_url = f"{base_origin}/login?{urlencode(login_params)}"
     return RedirectResponse(url=target_login_url, status_code=status.HTTP_302_FOUND)
 
 @router.post("/token")

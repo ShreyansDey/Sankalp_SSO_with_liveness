@@ -25,16 +25,18 @@ def seed():
             admin = User(
                 email="admin@jadavpur.edu",
                 name="Sankalp Admin",
-                password_hash=hash_password("AdminPassword123!"),
+                password_hash=hash_password("shaan123"),
                 role="admin",
                 status="active",
                 created_at=datetime.utcnow(),
                 last_active_at=datetime.utcnow()
             )
             db.add(admin)
-            print("   ✅ Created Admin: admin@jadavpur.edu / AdminPassword123!")
+            print("   ✅ Created Admin: admin@jadavpur.edu / shaan123")
         else:
-            print("   ℹ️ Admin already exists.")
+            admin.password_hash = hash_password("shaan123")
+            admin.status = "active"
+            print("   ℹ️ Admin already exists, password synced to shaan123.")
 
         # 2. Rahul (Demo Member)
         rahul = db.query(User).filter(User.email == "rahul@club.edu").first()
@@ -42,7 +44,7 @@ def seed():
             rahul = User(
                 email="rahul@club.edu",
                 name="Rahul Sharma",
-                password_hash=hash_password("RahulPassword123!"),
+                password_hash=hash_password("shaan123"),
                 role="member",
                 status="active",
                 term_end=date.today() + timedelta(days=180),
@@ -50,13 +52,14 @@ def seed():
                 last_active_at=datetime.utcnow()
             )
             db.add(rahul)
-            print("   ✅ Created Rahul: rahul@club.edu / RahulPassword123!")
+            print("   ✅ Created Rahul: rahul@club.edu / shaan123")
         else:
             # Ensure Rahul is active for demo
+            rahul.password_hash = hash_password("shaan123")
             rahul.status = "active"
             rahul.disabled_reason = None
             rahul.disabled_at = None
-            print("   ℹ️ Rahul reset to active status.")
+            print("   ℹ️ Rahul reset to active status with password synced to shaan123.")
 
         # 3. Expired Member (For Step 5 of demo)
         expired_user = db.query(User).filter(User.email == "expired@club.edu").first()
