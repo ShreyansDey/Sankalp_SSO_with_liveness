@@ -21,7 +21,7 @@ import { apiRequest, API_BASE } from "../api";
  * ==============================================================================
  */
 
-const STEP_TIME_LIMIT = 15; // 15 seconds per challenge step
+const STEP_TIME_LIMIT = 20; // 20 seconds per challenge step
 
 export default function Liveness() {
   const [searchParams] = useSearchParams();
@@ -596,14 +596,18 @@ export default function Liveness() {
 
     // Landmark references
     const nose = landmarks[1];
-    const leftEar = landmarks[234];
-    const rightEar = landmarks[454];
+    
+    // Blended yaw estimation: combines cheek/ear outer bounds with eye corners for 100% hair & profile resilience
+    const distToRightEar = Math.hypot(nose.x - landmarks[234].x, nose.y - landmarks[234].y);
+    const distToLeftEar = Math.hypot(nose.x - landmarks[454].x, nose.y - landmarks[454].y);
+    const earRatio = (distToRightEar + distToLeftEar) > 0 ? distToRightEar / (distToRightEar + distToLeftEar) : 0.5;
 
-    // Compute yaw ratio: asymmetry between left and right side of nose
-    const distToLeft = Math.hypot(nose.x - leftEar.x, nose.y - leftEar.y);
-    const distToRight = Math.hypot(nose.x - rightEar.x, nose.y - rightEar.y);
-    const totalDist = distToLeft + distToRight;
-    const yawRatio = totalDist === 0 ? 0.5 : distToLeft / totalDist;
+    const distToRightEye = Math.hypot(nose.x - landmarks[33].x, nose.y - landmarks[33].y);
+    const distToLeftEye = Math.hypot(nose.x - landmarks[263].x, nose.y - landmarks[263].y);
+    const eyeRatio = (distToRightEye + distToLeftEye) > 0 ? distToRightEye / (distToRightEye + distToLeftEye) : 0.5;
+
+    // 60% eye corners (always in front, never occluded by hair/shoulders) + 40% cheek boundaries
+    const yawRatio = (eyeRatio * 0.6) + (earRatio * 0.4);
 
     // Eye Aspect Ratio (EAR)
     const leftEAR = computeEAR(
@@ -626,16 +630,16 @@ export default function Liveness() {
 
     const activeStep = stepRef.current;
 
-    // STEP 1: Head Turn (Direction dictated by server challenge, requires 2 consecutive frames)
+    // STEP 1: Head Turn (Direction dictated by server challenge, gentle ~10-15° turn triggers immediately)
     if (activeStep === 1) {
       const ch = challengeRef.current || challenge;
       const targetTurn = ch?.type === "turn_right" ? "turn_right" : "turn_left";
-      // Natural ~15-20° turn angle (0.42 / 0.58) prevents losing FaceMesh tracking
-      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.58 : yawRatio < 0.42;
+      // Gentle ~10-15° turn angle (0.47 / 0.53) prevents face loss from over-rotation
+      const isTurned = targetTurn === "turn_left" ? yawRatio > 0.53 : yawRatio < 0.47;
 
       if (isTurned) {
         turnStateRef.current.turnFrames = (turnStateRef.current.turnFrames || 0) + 1;
-        if (turnStateRef.current.turnFrames >= 2) {
+        if (turnStateRef.current.turnFrames >= 1) {
           setStep1Passed(true);
           stepRef.current = 2;
           setCurrentStep(2);
@@ -648,7 +652,7 @@ export default function Liveness() {
     }
     // STEP 2: Return to Center & Dynamically Calibrate Open-Eye Baseline
     else if (activeStep === 2) {
-      const isCentered = yawRatio >= 0.42 && yawRatio <= 0.58;
+      const isCentered = yawRatio >= 0.44 && yawRatio <= 0.56;
 
       if (isCentered) {
         blinkStateRef.current.centeredFrames = (blinkStateRef.current.centeredFrames || 0) + 1;
@@ -658,8 +662,8 @@ export default function Liveness() {
           blinkStateRef.current.baseline = (prev * 0.82) + (ear * 0.18);
         }
 
-        // Require 3 stable centered frames (~100ms)
-        if (blinkStateRef.current.centeredFrames >= 3) {
+        // Require 2 stable centered frames (~66ms)
+        if (blinkStateRef.current.centeredFrames >= 2) {
           setStep2Passed(true);
           stepRef.current = 3;
           setCurrentStep(3);

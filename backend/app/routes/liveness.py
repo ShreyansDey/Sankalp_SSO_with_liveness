@@ -80,7 +80,7 @@ def create_challenge(
     challenge_type = random.choice(CHALLENGE_TYPES)
     raw_code = generate_liveness_code()
     code_h = hash_token(raw_code)
-    expires_at = datetime.utcnow() + timedelta(seconds=30)
+    expires_at = datetime.utcnow() + timedelta(seconds=60)
 
     # Clean up older abandoned uncompleted challenges for this user past the rate limit window
     db.query(LivenessChallenge).filter(
