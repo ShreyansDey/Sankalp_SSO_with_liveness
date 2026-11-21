@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRequest, API_BASE } from "../api";
 import AdminMembersTab from "../components/admin/AdminMembersTab";
@@ -66,6 +66,14 @@ export default function Admin() {
   const [disableLockLoading, setDisableLockLoading] = useState(false);
   const [disableLockTargetEmail, setDisableLockTargetEmail] = useState("teamsankalp60@gmail.com");
 
+  const activeTabRef = useRef(null);
+
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     loadInitialData();
 
@@ -93,12 +101,13 @@ export default function Admin() {
         return;
       }
       setCurrentUser(me);
-      await fetchUsers();
-      await fetchApplications();
-      await fetchInvites();
-      await fetchRenewals();
-      await fetchAudit();
-      await fetchFaceProfiles();
+      await Promise.allSettled([
+        fetchUsers(),
+        fetchApplications(),
+        fetchInvites(),
+        fetchRenewals(),
+        fetchFaceProfiles()
+      ]);
     } catch {
       navigate("/login", { replace: true });
     } finally {
@@ -484,7 +493,7 @@ export default function Admin() {
     <div style={{ minHeight: "100vh", background: "#F5F1E8", color: "#12171E", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" }}>
       {/* TOP HEADER */}
       <header className="admin-header">
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        <div className="admin-header-brand" style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Link to="/clubs" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", color: "inherit" }}>
             <span style={{
               display: "inline-flex",
@@ -570,40 +579,19 @@ export default function Admin() {
       {/* BODY WITH SIDEBAR NAVIGATION */}
       <div className="admin-layout">
         {/* SIDEBAR TABS */}
-        <nav className="admin-sidebar">
+        <nav className="admin-sidebar" role="tablist">
           <button
+            ref={activeTab === "members" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "members" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("members")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "members" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "members" ? 600 : 500,
-              color: activeTab === "members" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer"
-            }}
           >
-            Members
+            <span>Members</span>
           </button>
 
           <button
+            ref={activeTab === "applications" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "applications" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("applications")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "applications" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "applications" ? 600 : 500,
-              color: activeTab === "applications" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}
           >
             <span>Pending Approvals</span>
             {applications.length > 0 && (
@@ -613,7 +601,8 @@ export default function Admin() {
                 fontSize: "11px",
                 fontWeight: 700,
                 borderRadius: "999px",
-                padding: "2px 7px"
+                padding: "2px 7px",
+                marginLeft: "6px"
               }}>
                 {applications.length}
               </span>
@@ -621,38 +610,17 @@ export default function Admin() {
           </button>
 
           <button
+            ref={activeTab === "invites" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "invites" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("invites")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "invites" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "invites" ? 600 : 500,
-              color: activeTab === "invites" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer"
-            }}
           >
-            Invites
+            <span>Invites</span>
           </button>
 
           <button
+            ref={activeTab === "renewals" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "renewals" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("renewals")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "renewals" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "renewals" ? 600 : 500,
-              color: activeTab === "renewals" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}
           >
             <span>Renewals Desk</span>
             {renewals.filter((r) => r.status === "pending").length > 0 && (
@@ -662,7 +630,8 @@ export default function Admin() {
                 fontSize: "11px",
                 fontWeight: 700,
                 borderRadius: "999px",
-                padding: "2px 7px"
+                padding: "2px 7px",
+                marginLeft: "6px"
               }}>
                 {renewals.filter((r) => r.status === "pending").length}
               </span>
@@ -670,55 +639,25 @@ export default function Admin() {
           </button>
 
           <button
+            ref={activeTab === "audit" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "audit" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("audit")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "audit" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "audit" ? 600 : 500,
-              color: activeTab === "audit" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer"
-            }}
           >
-            Audit Log
+            <span>Audit Log</span>
           </button>
 
           <button
+            ref={activeTab === "cleanup" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "cleanup" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("cleanup")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "cleanup" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "cleanup" ? 600 : 500,
-              color: activeTab === "cleanup" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer"
-            }}
           >
-            Automated Cleanup
+            <span>Automated Cleanup</span>
           </button>
 
           <button
+            ref={activeTab === "facelock" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "facelock" ? "active-tab" : ""}`}
             onClick={() => setActiveTab("facelock")}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: activeTab === "facelock" ? "#E4DDCF" : "transparent",
-              fontSize: "15px",
-              fontWeight: activeTab === "facelock" ? 600 : 500,
-              color: activeTab === "facelock" ? "#12171E" : "#4A5260",
-              border: "none",
-              textAlign: "left",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between"
-            }}
           >
             <span>Biometric Face Lock</span>
             {requireFaceMatch && faceProfiles.length > 0 && (
@@ -728,7 +667,8 @@ export default function Admin() {
                 fontSize: "10px",
                 fontWeight: 700,
                 borderRadius: "999px",
-                padding: "2px 7px"
+                padding: "2px 7px",
+                marginLeft: "6px"
               }}>
                 ACTIVE
               </span>

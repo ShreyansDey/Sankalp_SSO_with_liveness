@@ -143,7 +143,7 @@ def run_cleanup_job(db: Session) -> Dict[str, Any]:
         recent_warning = db.query(AuditLog).filter(
             AuditLog.target_id == user.id,
             AuditLog.action == "expiry_warning_sent",
-            AuditLog.created_at >= now - timedelta(days=2)
+            AuditLog.at >= now - timedelta(days=2)
         ).first()
 
         if not recent_warning:
