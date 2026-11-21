@@ -199,8 +199,10 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
 <script>
   const CLIENT_ID = "app-b";
   const CLIENT_SECRET = "secret-app-b-key-2026";
-  const AUTH_SERVER = "http://localhost:8001";
-  const REDIRECT_URI = "http://localhost:5175/callback";
+  const isDirectPort = window.location.port === "5175";
+  const AUTH_SERVER = isDirectPort ? "http://localhost:8001" : window.location.origin;
+  const REDIRECT_URI = isDirectPort ? "http://localhost:5175/callback" : `${window.location.origin}/app-b/callback`;
+  const CENTRAL_PORTAL = isDirectPort ? "${CENTRAL_PORTAL}" : window.location.origin;
 
   function initiateLogin() {
     const state = "state_robotics_" + Math.random().toString(36).substring(7);
@@ -213,7 +215,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
     const code = urlParams.get("code");
     if (!code) return false;
 
-    window.history.replaceState({}, document.title, window.location.pathname);
+    window.history.replaceState({}, document.title, window.location.pathname.replace(/\/callback.*$/, "") || (isDirectPort ? "/" : "/app-b"));
     document.getElementById("app-root").innerHTML = `
       <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;">
         <div class="inst-card" style="padding: 40px; max-width: 480px; width: 100%; text-align: center;">
@@ -312,7 +314,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
           <p style="color: #5A6270; font-size: 14px; line-height: 1.6; margin: 0 0 28px;">
             Your account access was immediately revoked across all 5 campus clubs. All active tokens and refresh tokens have been invalidated by the central registry.
           </p>
-          <button onclick="sessionStorage.clear(); window.location.href='http://localhost:5180';" style="height: 44px; padding: 0 24px; font-size: 14px; font-weight: 600; color: #12171E; background: transparent; border: 1px solid #12171E; border-radius: 8px;">
+          <button onclick="sessionStorage.clear(); window.location.href='${CENTRAL_PORTAL}';" style="height: 44px; padding: 0 24px; font-size: 14px; font-weight: 600; color: #12171E; background: transparent; border: 1px solid #12171E; border-radius: 8px;">
             Return to Central Portal
           </button>
         </div>
@@ -335,7 +337,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
               <span>${user.role === 'admin' ? 'Administrator Inspection Mode — Viewing as central system supervisor' : `Signed in with Real Access as <strong style="font-weight: 600; color: #F5F1E8;">${user.name}</strong> (${user.email})`}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 20px;">
-              <a href="http://localhost:5180/clubs" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Switch society</a>
+              <a href="${CENTRAL_PORTAL}/clubs" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Switch society</a>
               <a href="javascript:void(0)" onclick="signOut()" style="color: #F5F1E8; text-decoration: underline; text-underline-offset: 3px;">Sign out</a>
             </div>
           </div>
@@ -350,7 +352,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
               </div>
               <div>
                 <div style="font-size: 13px; margin-bottom: 4px; color: #6B7280;">
-                  <a href="http://localhost:5180/clubs" style="color: #6B7280; text-decoration: none;">University Societies & Labs</a>
+                  <a href="${CENTRAL_PORTAL}/clubs" style="color: #6B7280; text-decoration: none;">University Societies & Labs</a>
                   <span style="color: #B9B2A3; margin: 0 4px;">/</span>
                   <span style="color: #12171E; font-weight: 500;">Robotics Laboratory</span>
                 </div>
@@ -528,7 +530,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
               <!-- Central SSO Connection Info -->
               <section class="inst-card" style="padding: 22px; font-size: 12.5px; color: #5A6270; line-height: 1.55;">
                 <div style="font-weight: 600; color: #12171E; margin-bottom: 6px;">Single Sign-On Architecture</div>
-                This portal is connected to the Jadavpur University Central Auth server (http://localhost:8001). Sessions are backed by sliding HttpOnly credentials.
+                This portal is connected to the Jadavpur University Central Auth server (${AUTH_SERVER}). Sessions are backed by sliding HttpOnly credentials.
               </section>
 
             </div>
@@ -603,7 +605,7 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
 
   function signOut() {
     sessionStorage.clear();
-    window.location.replace("http://localhost:5180/signed-out");
+    window.location.replace("${CENTRAL_PORTAL}/signed-out");
   }
 
   (async () => {

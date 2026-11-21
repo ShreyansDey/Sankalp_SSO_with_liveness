@@ -43,6 +43,31 @@ export default defineConfig({
       '/health': {
         target: 'http://localhost:8001',
         changeOrigin: true
+      },
+      '/app-a': {
+        target: 'http://localhost:5174',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-a/, '') || '/'
+      },
+      '/app-b': {
+        target: 'http://localhost:5175',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-b/, '') || '/'
+      },
+      '/app-c': {
+        target: 'http://localhost:5176',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-c/, '') || '/'
+      },
+      '/app-d': {
+        target: 'http://localhost:5177',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-d/, '') || '/'
+      },
+      '/app-e': {
+        target: 'http://localhost:5178',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-e/, '') || '/'
       }
     }
   }
