@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { apiRequest } from "../api";
 
 /**
@@ -48,16 +48,23 @@ const COUNTRIES = [
 ];
 
 export default function Register() {
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const tokenParam = searchParams.get("token") || "";
 
   // Step state: 'details' -> 'consent'
   const [step, setStep] = useState("details");
+
+  // Registration mode: 'direct' (self-service signup) or 'invite' (admin invite token)
+  const [mode, setMode] = useState(tokenParam ? "invite" : "direct");
 
   // Consent states
   const [consentChecked, setConsentChecked] = useState(false);
   const [declineNotice, setDeclineNotice] = useState(false);
 
   // Form states
+  const [inviteToken, setInviteToken] = useState(tokenParam);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [selectedCountryCode, setSelectedCountryCode] = useState("IN");
@@ -365,9 +372,17 @@ export default function Register() {
   };
 
   // Advance to DPDP Consent Screen after form validation
+  // Validate and advance to consent step
   const handleProceedToConsent = (e) => {
     e.preventDefault();
     setError(null);
+
+    if (mode === "invite") {
+      if (!inviteToken.trim()) {
+        setError("Please enter your organization invite token.");
+        return;
+      }
+    }
 
     // 1. Compulsory fields validation
     if (!fullName.trim()) {
@@ -382,22 +397,26 @@ export default function Register() {
       setError("Please enter your complete legal name.");
       return;
     }
-    if (!email.trim() || !email.includes("@")) {
-      setError("A valid Email Address is compulsory.");
-      return;
+
+    if (mode === "direct") {
+      if (!email.trim() || !email.includes("@")) {
+        setError("A valid Email Address is compulsory.");
+        return;
+      }
+      if (!phoneNumber.trim()) {
+        setError(`Phone Number is compulsory. Please enter your ${selectedCountry.digits}-digit phone number.`);
+        return;
+      }
+      if (!/^\d+$/.test(phoneNumber)) {
+        setError("Phone Number can only contain numeric digits.");
+        return;
+      }
+      if (phoneNumber.length !== selectedCountry.digits) {
+        setError(`Phone number for ${selectedCountry.name} must be exactly ${selectedCountry.digits} digits (you entered ${phoneNumber.length} digits).`);
+        return;
+      }
     }
-    if (!phoneNumber.trim()) {
-      setError(`Phone Number is compulsory. Please enter your ${selectedCountry.digits}-digit phone number.`);
-      return;
-    }
-    if (!/^\d+$/.test(phoneNumber)) {
-      setError("Phone Number can only contain numeric digits.");
-      return;
-    }
-    if (phoneNumber.length !== selectedCountry.digits) {
-      setError(`Phone number for ${selectedCountry.name} must be exactly ${selectedCountry.digits} digits (you entered ${phoneNumber.length} digits).`);
-      return;
-    }
+
     if (!password || password.length < 8) {
       setError("Password must be at least 8 characters long.");
       return;
@@ -428,28 +447,53 @@ export default function Register() {
     const fullPhoneNumber = `${selectedCountry.dialCode} ${phoneNumber.trim()}`;
 
     try {
-      const res = await apiRequest("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          name: fullName.trim(),
-          phone: fullPhoneNumber,
-          password,
-          face_photo: facePhoto,
-          document_base64: documentBase64,
-          document_name: documentName || "supporting_document.pdf",
-          consent_given: true
-        })
-      });
+      if (mode === "invite") {
+        // Invite-based application submission
+        const res = await apiRequest("/auth/apply", {
+          method: "POST",
+          body: JSON.stringify({
+            invite_token: inviteToken.trim(),
+            name: fullName.trim(),
+            password,
+            face_photo: facePhoto,
+            document_base64: documentBase64,
+            document_name: documentName || "supporting_document.pdf"
+          })
+        });
 
-      setSubmittedData({
-        name: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        phone: fullPhoneNumber,
-        documentName: documentName || "Document attached",
-        facePhoto: facePhoto
-      });
-      setSubmitted(true);
+        setSubmittedData({
+          name: fullName.trim(),
+          email: res.email || "Invite Verified",
+          phone: fullPhoneNumber || "Registered via Invite",
+          documentName: documentName || "Document attached",
+          facePhoto: facePhoto
+        });
+        setSubmitted(true);
+      } else {
+        // Direct self-service registration
+        const res = await apiRequest("/auth/register", {
+          method: "POST",
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            name: fullName.trim(),
+            phone: fullPhoneNumber,
+            password,
+            face_photo: facePhoto,
+            document_base64: documentBase64,
+            document_name: documentName || "supporting_document.pdf",
+            consent_given: true
+          })
+        });
+
+        setSubmittedData({
+          name: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          phone: fullPhoneNumber,
+          documentName: documentName || "Document attached",
+          facePhoto: facePhoto
+        });
+        setSubmitted(true);
+      }
     } catch (err) {
       console.error("Registration error:", err);
       const detail = err?.detail;
@@ -462,6 +506,12 @@ export default function Register() {
         setError("An account with this email already exists. Please log in directly.");
       } else if (errCode === "already_pending") {
         setError("An application for this email has already been submitted and is waiting for administrator approval.");
+      } else if (errCode === "invalid_invite") {
+        setError("The invite token entered is invalid or expired. Please check your invite email.");
+      } else if (errCode === "invite_used") {
+        setError("This invite token has already been used. Please log in.");
+      } else if (errCode === "invite_expired") {
+        setError("This invite token has expired. Please request a new invite from your administrator.");
       } else {
         setError(errMsg);
       }
@@ -791,11 +841,79 @@ export default function Register() {
                 </p>
               </div>
 
+              {/* Mode Toggle: Direct Registration vs Have an Invite Token */}
+              <div style={{
+                display: "inline-flex",
+                background: "#EBE5D8",
+                borderRadius: "8px",
+                padding: "3px",
+                marginBottom: "18px",
+                gap: "2px"
+              }}>
+                <button
+                  type="button"
+                  onClick={() => { setMode("direct"); setError(null); }}
+                  style={{
+                    background: mode === "direct" ? "#FBF9F4" : "transparent",
+                    color: mode === "direct" ? "#12171E" : "#5A6270",
+                    border: 0,
+                    borderRadius: "6px",
+                    padding: "7px 14px",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: mode === "direct" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  Direct Registration
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("invite"); setError(null); }}
+                  style={{
+                    background: mode === "invite" ? "#FBF9F4" : "transparent",
+                    color: mode === "invite" ? "#12171E" : "#5A6270",
+                    border: 0,
+                    borderRadius: "6px",
+                    padding: "7px 14px",
+                    fontSize: "12.5px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    boxShadow: mode === "invite" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  Have an Invite Token
+                </button>
+              </div>
+
               {/* Form */}
               <form onSubmit={handleProceedToConsent} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             
+            {/* Invite Token Input if mode === 'invite' */}
+            {mode === "invite" && (
+              <div style={{ background: "#F3EFE7", border: "1px solid #D9822B", borderRadius: "8px", padding: "14px 16px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: "600", marginBottom: "5px", color: "#12171E" }}>
+                  Organization Invite Token <span style={{ color: "#DC2626" }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. demo-invite-token-12345"
+                  value={inviteToken}
+                  onChange={(e) => setInviteToken(e.target.value)}
+                  className="input-editorial"
+                  style={{ height: "40px", fontSize: "14px", fontFamily: "'JetBrains Mono', monospace", background: "#FFFFFF" }}
+                />
+                <div style={{ fontSize: "11.5px", color: "#5A6270", marginTop: "4px" }}>
+                  Enter the secure invite token issued by your university department or club administrator.
+                </div>
+              </div>
+            )}
+
             {/* 1. Full Name & Phone Number */}
-            <div className="form-grid-2col">
+            <div className={mode === "direct" ? "form-grid-2col" : ""}>
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
                   Full Name <span style={{ color: "#DC2626" }}>*</span>
@@ -833,137 +951,141 @@ export default function Register() {
                 )}
               </div>
 
+              {mode === "direct" && (
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
+                    Phone Number <span style={{ color: "#DC2626" }}>*</span>
+                  </label>
+                  <div style={{
+                    display: "flex",
+                    alignItems: "stretch",
+                    width: "100%",
+                    borderRadius: "7px",
+                    border: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    overflow: "hidden",
+                    boxSizing: "border-box"
+                  }}>
+                    {/* Country Selector Dropdown with Down Arrow */}
+                    <div style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      background: "#EBE5D8",
+                      borderRight: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
+                      flexShrink: 0
+                    }}>
+                      <select
+                        value={selectedCountryCode}
+                        onChange={handleCountryChange}
+                        aria-label="Select country dial code"
+                        style={{
+                          appearance: "none",
+                          WebkitAppearance: "none",
+                          MozAppearance: "none",
+                          border: "none",
+                          background: "transparent",
+                          padding: "0 22px 0 10px",
+                          height: "40px",
+                          fontSize: "12.5px",
+                          fontWeight: 600,
+                          color: "#12171E",
+                          cursor: "pointer",
+                          outline: "none"
+                        }}
+                      >
+                        {COUNTRIES.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.dialCode} ({c.name})
+                          </option>
+                        ))}
+                      </select>
+                      {/* Visual down arrow indicator */}
+                      <span style={{
+                        position: "absolute",
+                        right: "6px",
+                        pointerEvents: "none",
+                        fontSize: "9px",
+                        color: "#5A6270"
+                      }}>
+                        &#9660;
+                      </span>
+                    </div>
+
+                    {/* Digits-only telephone input with exact country length */}
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      required
+                      placeholder={`${selectedCountry.placeholder}`}
+                      value={phoneNumber}
+                      onChange={handlePhoneChange}
+                      onKeyDown={(e) => {
+                        if (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                          setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
+                        }
+                      }}
+                      maxLength={selectedCountry.digits}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: "40px",
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        padding: "0 12px",
+                        fontSize: "13.5px",
+                        color: "#12171E"
+                      }}
+                    />
+                  </div>
+                  {/* Character/digit counter & warning helper */}
+                  {phoneWarning ? (
+                    <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
+                      [!] {phoneWarning}
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: "11px",
+                      color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270",
+                      marginTop: "3px"
+                    }}>
+                      <span>Numbers only ({selectedCountry.name})</span>
+                      <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Email Address (Only in Direct Mode; in Invite Mode email comes from the token) */}
+            {mode === "direct" && (
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
-                  Phone Number <span style={{ color: "#DC2626" }}>*</span>
+                  Email Address <span style={{ color: "#DC2626" }}>*</span>
                 </label>
-                <div style={{
-                  display: "flex",
-                  alignItems: "stretch",
-                  width: "100%",
-                  borderRadius: "7px",
-                  border: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
-                  background: "#FDFBF7",
-                  overflow: "hidden",
-                  boxSizing: "border-box"
-                }}>
-                  {/* Country Selector Dropdown with Down Arrow */}
-                  <div style={{
-                    position: "relative",
-                    display: "flex",
-                    alignItems: "center",
-                    background: "#EBE5D8",
-                    borderRight: phoneWarning ? "1px solid #DC2626" : "1px solid #C4BCAF",
-                    flexShrink: 0
-                  }}>
-                    <select
-                      value={selectedCountryCode}
-                      onChange={handleCountryChange}
-                      aria-label="Select country dial code"
-                      style={{
-                        appearance: "none",
-                        WebkitAppearance: "none",
-                        MozAppearance: "none",
-                        border: "none",
-                        background: "transparent",
-                        padding: "0 22px 0 10px",
-                        height: "40px",
-                        fontSize: "12.5px",
-                        fontWeight: 600,
-                        color: "#12171E",
-                        cursor: "pointer",
-                        outline: "none"
-                      }}
-                    >
-                      {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.dialCode} ({c.name})
-                        </option>
-                      ))}
-                    </select>
-                    {/* Visual down arrow indicator */}
-                    <span style={{
-                      position: "absolute",
-                      right: "6px",
-                      pointerEvents: "none",
-                      fontSize: "9px",
-                      color: "#5A6270"
-                    }}>
-                      &#9660;
-                    </span>
-                  </div>
-
-                  {/* Digits-only telephone input with exact country length */}
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    required
-                    placeholder={`${selectedCountry.placeholder}`}
-                    value={phoneNumber}
-                    onChange={handlePhoneChange}
-                    onKeyDown={(e) => {
-                      if (e.key.length === 1 && /[a-zA-Z]/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                        setPhoneWarning("Letters and text are not permitted in Phone Number. Digits only.");
-                      }
-                    }}
-                    maxLength={selectedCountry.digits}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      height: "40px",
-                      border: "none",
-                      outline: "none",
-                      background: "transparent",
-                      padding: "0 12px",
-                      fontSize: "13.5px",
-                      color: "#12171E"
-                    }}
-                  />
-                </div>
-                {/* Character/digit counter & warning helper */}
-                {phoneWarning ? (
-                  <div style={{ fontSize: "11px", color: "#DC2626", fontWeight: 600, marginTop: "3px" }}>
-                    [!] {phoneWarning}
-                  </div>
-                ) : (
-                  <div style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "11px",
-                    color: phoneNumber.length === selectedCountry.digits ? "#15803D" : "#5A6270",
-                    marginTop: "3px"
-                  }}>
-                    <span>Numbers only ({selectedCountry.name})</span>
-                    <span style={{ fontWeight: 600 }}>{phoneNumber.length} / {selectedCountry.digits} digits</span>
-                  </div>
-                )}
+                <input
+                  type="email"
+                  required
+                  placeholder="you@college.edu"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: "40px",
+                    padding: "0 12px",
+                    borderRadius: "7px",
+                    border: "1px solid #C4BCAF",
+                    background: "#FDFBF7",
+                    fontSize: "13.5px",
+                    boxSizing: "border-box"
+                  }}
+                />
               </div>
-            </div>
-
-            {/* 2. Email Address */}
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "5px" }}>
-                Email Address <span style={{ color: "#DC2626" }}>*</span>
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="you@college.edu"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  width: "100%",
-                  height: "40px",
-                  padding: "0 12px",
-                  borderRadius: "7px",
-                  border: "1px solid #C4BCAF",
-                  background: "#FDFBF7",
-                  fontSize: "13.5px",
-                  boxSizing: "border-box"
-                }}
-              />
-            </div>
+            )}
 
             {/* 3. Password */}
             <div>
