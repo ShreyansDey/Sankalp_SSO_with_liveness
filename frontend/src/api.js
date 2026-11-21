@@ -15,7 +15,14 @@
  * ==============================================================================
  */
 
-export const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+export const API_BASE =
+  import.meta.env.VITE_API_BASE ??
+  import.meta.env.VITE_API_URL ??
+  (typeof window !== "undefined"
+    ? (!window.location.port || window.location.port === "80" || window.location.port === "443"
+        ? ""
+        : `${window.location.protocol}//${window.location.hostname}:8001`)
+    : "http://localhost:8001");
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;

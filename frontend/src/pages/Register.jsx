@@ -50,7 +50,6 @@ const COUNTRIES = [
 export default function Register() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
   const tokenParam = searchParams.get("token") || "";
 
   // Step state: 'details' -> 'consent'
@@ -67,6 +66,7 @@ export default function Register() {
   const [inviteToken, setInviteToken] = useState(tokenParam);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState(null);
   const [selectedCountryCode, setSelectedCountryCode] = useState("IN");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
@@ -75,6 +75,17 @@ export default function Register() {
   // Field warning notices
   const [nameWarning, setNameWarning] = useState("");
   const [phoneWarning, setPhoneWarning] = useState("");
+
+  useEffect(() => {
+    if (tokenParam) {
+      apiRequest(`/auth/invite-info?token=${encodeURIComponent(tokenParam)}`)
+        .then((info) => {
+          if (info?.email) setEmail(info.email);
+          if (info?.role) setInviteRole(info.role);
+        })
+        .catch(() => {});
+    }
+  }, [tokenParam]);
 
   const selectedCountry = COUNTRIES.find((c) => c.code === selectedCountryCode) || COUNTRIES[0];
 
@@ -809,6 +820,20 @@ export default function Register() {
           {/* STEP 1: FORM DETAILS */}
           {step === "details" && (
             <div>
+              {tokenParam && (
+                <div style={{
+                  background: "#FBF9F4",
+                  border: "1px solid #D9822B",
+                  borderRadius: "8px",
+                  padding: "12px 14px",
+                  marginBottom: "16px",
+                  color: "#8B5200",
+                  fontSize: "13px",
+                  lineHeight: 1.5
+                }}>
+                  <strong>Invited Registration:</strong> You have been invited to join as <strong>{inviteRole || "a member"}</strong>. Please complete your profile, capture your photo, and attach your student ID for administrator verification.
+                </div>
+              )}
               {/* Header Title */}
               <div style={{ marginBottom: "20px" }}>
                 <div style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "1.8px", color: "#D9822B", marginBottom: "4px" }}>

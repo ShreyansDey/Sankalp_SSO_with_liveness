@@ -71,68 +71,86 @@ Former members leave clubs and universities, but their accounts stay active for 
 
 ```
 Sankalp_prep_pack/
-├── backend/                         # FastAPI backend
+├── backend/                         # FastAPI Application Core (Port 8001)
 │   ├── app/
-│   │   ├── routes/                  # API routes (auth, liveness, sso, admin)
-│   │   ├── jobs/                    # APScheduler automated lifecycle jobs
-│   │   ├── models.py                # SQLAlchemy models (users, invites, products, sessions)
-│   │   ├── security.py              # Argon2 password & token hashing, JWT signing
-│   │   ├── audit.py                 # Sanitized audit logger (14 fixed actions)
-│   │   ├── config.py                # Environment configuration loader
-│   │   ├── database.py              # Multi-engine DB connection (SQLite/PostgreSQL)
-│   │   ├── deps.py                  # Session & token authentication dependencies
-│   │   └── main.py                  # FastAPI application entrypoint & lifespan
-│   ├── tests/                       # Pytest automated test suite (11 test cases)
-│   ├── seed.py                      # Database initialization and demo accounts
+│   │   ├── routes/                  # API endpoints (auth, liveness, sso, admin)
+│   │   ├── schemas/                 # Pydantic request & response validation schemas
+│   │   ├── services/                # Business logic (email_service, face_engine)
+│   │   ├── jobs/                    # APScheduler background tasks (cleanup.py)
+│   │   ├── models.py                # SQLAlchemy ORM schemas (users, products, sessions, audit)
+│   │   ├── security.py              # Argon2id password hashing, JWT signing, token hashing
+│   │   ├── audit.py                 # Immutable audit logger with PII scrubber
+│   │   ├── config.py                # Centralized environment loader & config
+│   │   ├── database.py              # SQLAlchemy multi-engine DB engine & sessionmaker
+│   │   ├── deps.py                  # Auth guards & dependency injection
+│   │   └── main.py                  # FastAPI app factory, lifespan, & CORS configuration
+│   ├── models/                      # Pretrained OpenCV YuNet & SFace ONNX neural net weights
+│   ├── uploads/                     # Storage vault for e-KYC documents & face snapshots
+│   ├── tests/                       # Pytest test suite with isolated in-memory DB
+│   ├── check_db.py                  # Database inspection & storage verification CLI
+│   ├── seed.py                      # Database initialization & demo account seeder
+│   ├── test_full_system.py          # End-to-end e-KYC & biometric verification runner
 │   ├── requirements.txt             # Python backend dependencies
 │   ├── Dockerfile                   # Backend Docker container definition
 │   └── .env.example                 # Documented environment variables
-├── frontend/                        # Vite React central login & admin console
+├── frontend/                        # Central Login & Admin Portal (Port 5180, React + Vite)
 │   ├── src/
-│   │   ├── pages/                   # Login, Signup, Liveness, Admin Console
-│   │   ├── api.js                   # Authenticated API client with credentials
+│   │   ├── components/              # Modular UI components
+│   │   │   ├── common/              # Reusable UI (Navbar, StatusBadge, AlertBanner, Modal, Spinner)
+│   │   │   └── admin/               # Admin Console tabs (Members, Applications, Renewals, Invites, etc.)
+│   │   ├── pages/                   # Application views (Login, Signup, Liveness, Admin, Clubs, Renew)
+│   │   ├── context/                 # Centralized state (AuthContext & useAuth hook)
+│   │   ├── constants/               # System constants (campus club definitions & ports)
+│   │   ├── utils/                   # Data formatters & time calculations
+│   │   ├── api.js                   # Authenticated HTTP client with credentials
 │   │   ├── index.css                # Polished design system
-│   │   ├── App.jsx                  # React Router routes
+│   │   ├── App.jsx                  # Client-side routing table
 │   │   └── main.jsx                 # Vite application mount
-│   ├── index.html                   # MediaPipe Face Mesh & typography
+│   ├── public/                      # Static assets & club imagery
+│   ├── index.html                   # HTML entrypoint & typography
 │   ├── package.json                 # Node dependencies
 │   ├── vite.config.js               # Vite bundler configuration (port 5180)
 │   └── Dockerfile                   # Frontend Docker container definition
-├── demo-apps/                       # Connected client products
-│   ├── app-a/                       # Photography Club Portal (port 5174)
-│   ├── app-b/                       # Robotics Research Lab (port 5175)
-│   ├── serve_demo_apps.py           # Dual-server static runner with SPA fallback
+├── demo-apps/                       # 5 Connected University Campus Clubs (Ports 5174–5178)
+│   ├── app-a/                       # Club A: Photography Club (Port 5174)
+│   ├── app-b/                       # Club B: Robotics Lab (Port 5175)
+│   ├── app-c/                       # Club C: Coding & AI Society (Port 5176)
+│   ├── app-d/                       # Club D: Chess & Mind Sports (Port 5177)
+│   ├── app-e/                       # Club E: Athletics & Sports Complex (Port 5178)
+│   ├── serve_demo_apps.py           # Multi-port static server with SPA fallback
 │   └── Dockerfile                   # Demo apps container definition
 ├── docs/
-│   ├── modules/                     # Per-module documentation (01 to 07)
-│   │   ├── 00-index.md              # Status tracker for all 7 modules
-│   │   ├── 01-auth-core.md          # Signup, login, and sessions
-│   │   ├── 02-sso-flow.md           # Authorize, token issuance, and refresh
-│   │   ├── 03-liveness.md           # MediaPipe face mesh & anti-spoofing
-│   │   ├── 04-admin-dashboard.md    # Mark as left & member management
-│   │   ├── 05-cleanup-job.md        # Term end & inactivity automated expiry
-│   │   ├── 06-audit-log.md          # Tamper-evident event log
-│   │   └── 07-demo-apps.md          # Photography Club & Robotics Lab
+│   ├── specs/                       # Architectural specifications & requirements
+│   │   ├── srs.md                   # Software Requirements Specification
+│   │   ├── architecture.md          # System architecture, topology, & sequence diagrams
+│   │   ├── data-model.md            # Database schema & audit event catalog
+│   │   ├── api.md                   # REST API endpoint specifications
+│   │   ├── security.md              # Threat model & cryptographic mitigations
+│   │   ├── build-plan.md            # Implementation roadmap & phase checkpoints
+│   │   ├── stack-and-setup.md       # Development setup guide
+│   │   ├── demo-script.md           # 4-minute presentation demo script
+│   │   ├── test-checklist.md        # Pre-flight verification checklist
+│   │   └── todos.md                 # Milestone tracking
+│   ├── modules/                     # Detailed module documentation (00 to 08)
 │   └── _module-template.md          # Architectural documentation template
 ├── scripts/
 │   ├── start.ps1 / start.bat / start.sh     # One-click start all services
 │   ├── stop.ps1 / stop.bat / stop.sh        # One-click stop all services & release ports
 │   ├── restart.ps1 / restart.bat / restart.sh # One-click restart services
-│   ├── status.ps1                           # Service status board
+│   ├── status.ps1 / status.bat / status.sh   # Service status board
+│   ├── setup.ps1 / setup.bat / setup.sh     # One-click setup dependencies
 │   ├── manager.py                           # Cross-platform Python lifecycle manager
-│   ├── dev.ps1                              # Windowed PowerShell developer launcher
+│   ├── dev.ps1                              # Windowed developer launcher
 │   └── README.md                            # Complete scripts documentation
 ├── .github/workflows/
 │   └── ci.yml                       # GitHub Actions CI workflow (lint, test, build)
 ├── docker-compose.yml               # Multi-container local orchestration
-├── run_all.py                       # Cross-platform development runner
-├── data-model.md                    # Database tables and audit action specification
-├── api.md                           # REST API endpoint contracts
-├── security.md                      # Threat model and mitigation matrix
-├── srs.md                           # Software requirements specification
-├── demo-script.md                   # 4-minute presentation demo script
-├── test-checklist.md                # Verification test checklist with metrics
-└── todos.md                         # Milestone tracking
+├── start.bat / start.ps1            # Root convenience start shortcuts
+├── stop.bat / stop.ps1              # Root convenience stop shortcuts
+├── restart.bat / restart.ps1        # Root convenience restart shortcuts
+├── status.bat / status.ps1          # Root convenience status shortcuts
+├── agents.md                        # Assistant & Developer Working Rules
+└── README.md                        # Project Overview
 ```
 
 ---

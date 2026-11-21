@@ -33,6 +33,12 @@ def setup_db():
     yield
     Base.metadata.drop_all(bind=test_engine)
 
+@pytest.fixture(autouse=True)
+def mock_smtp(monkeypatch):
+    """Ensure tests run completely offline without SMTP socket timeouts."""
+    from app.services import email_service
+    monkeypatch.setattr(email_service, "send_email", lambda *args, **kwargs: True)
+
 @pytest.fixture
 def db_session():
     db = TestingSessionLocal()

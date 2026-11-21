@@ -8,14 +8,15 @@ Welcome to the implementation catalog for **Sankalp SSO**. Every core capability
 
 | Module # | Module Name | Primary Code Files | Status | Owner | Test Coverage |
 |---|---|---|---|---|---|
-| [**01**](file:///docs/modules/01-auth-core.md) | **Auth Core** (Signup, Login, Sessions, Argon2, Password Reset) | `backend/app/routes/auth.py`<br/>`backend/app/security.py`<br/>`backend/app/services/email_service.py` | **Done** | Shaan | `backend/tests/test_auth.py` |
+| [**01**](file:///docs/modules/01-auth-core.md) | **Auth Core** (Signup, Login, Sessions, Argon2, Reset, Login/Password Alerts) | `backend/app/routes/auth.py`<br/>`backend/app/security.py`<br/>`backend/app/services/email_service.py` | **Done** | Shaan | `backend/tests/test_auth.py` |
 | [**02**](file:///docs/modules/02-sso-flow.md) | **SSO Flow** (Authorize, Tokens, 60s Codes, Refresh, 1-Click SSO) | `backend/app/routes/sso.py`<br/>`backend/app/deps.py` | **Done** | Shaan | `backend/tests/test_sso.py` |
 | [**03**](file:///docs/modules/03-liveness.md) | **Liveness Check** (MediaPipe Face Mesh, 3D Depth, Anti-Jitter Blink) | `frontend/src/pages/Liveness.jsx`<br/>`backend/app/routes/liveness.py` | **Done** | Arka | `frontend/src/pages/Liveness.jsx` |
-| [**04**](file:///docs/modules/04-admin-dashboard.md) | **Admin Dashboard** (Member Management, Instant Mark as Left, 48h Renewals Desk) | `frontend/src/pages/Admin.jsx`<br/>`frontend/src/pages/Renew.jsx`<br/>`backend/app/routes/admin.py` | **Done** | Arka | `backend/tests/test_admin_and_cleanup.py`<br/>`backend/tests/test_renewal_and_48h_purge.py` |
+| [**04**](file:///docs/modules/04-admin-dashboard.md) | **Admin Dashboard** (Members, Instant Revoke, 48h Renewals, Biometric Face Lock, IST) | `frontend/src/pages/Admin.jsx`<br/>`frontend/src/components/admin/*`<br/>`backend/app/routes/admin.py` | **Done** | Arka | `backend/tests/test_admin_and_cleanup.py`<br/>`backend/tests/test_renewal_and_48h_purge.py` |
 | [**05**](file:///docs/modules/05-cleanup-job.md) | **Cleanup Job** (APScheduler Janitor, Term Expiry, 48h Hard Purge) | `backend/app/jobs/cleanup.py` | **Done** | Shaan | `backend/tests/test_admin_and_cleanup.py`<br/>`backend/tests/test_renewal_and_48h_purge.py` |
 | [**06**](file:///docs/modules/06-audit-log.md) | **Audit Log** (Append-Only Trail, 20 Fixed Actions, PII Scrubber) | `backend/app/audit.py` | **Done** | Shaan | `backend/tests/test_admin_and_cleanup.py` |
 | [**07**](file:///docs/modules/07-demo-apps.md) | **Demo Apps** (5 Connected Campus Clubs: Ports 5174–5178) | `demo-apps/serve_demo_apps.py`<br/>`demo-apps/app-[a-e]/index.html` | **Done** | Shaan & Arka | End-to-End Browser Tests |
-| [**08**](file:///docs/modules/08-ekyc-face-verification.md) | **e-KYC & Biometrics** (YuNet + SFace 128D Vectors, Cosine Match $\ge 0.40$) | `backend/app/services/face_engine.py`<br/>`frontend/src/pages/Register.jsx` | **Done** | Arka & Shaan | `backend/tests/test_ekyc_and_biometrics.py`<br/>`backend/test_full_system.py` |
+| [**08**](file:///docs/modules/08-ekyc-face-verification.md) | **e-KYC & Biometrics** (YuNet + SFace 128D Vectors, Cosine Match $\ge 0.40$, Multi-Admin Face) | `backend/app/services/face_engine.py`<br/>`frontend/src/pages/Register.jsx` | **Done** | Arka & Shaan | `backend/tests/test_ekyc_and_biometrics.py`<br/>`backend/test_full_system.py` |
+| [**09**](file:///docs/modules/09-system-overview-and-pitch.md) | **System Analysis & Pitch Deck** (Overall Blueprint, Market Analysis, Sponsor ROI, Claude PPTX) | `docs/modules/09-system-overview-and-pitch.md` | **Done** | Shaan & Arka | Full System Specs & Benchmark Suite |
 
 ---
 

@@ -2,13 +2,17 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file from backend root or current directory
+# Load .env file from root or backend directory
 base_dir = Path(__file__).resolve().parent.parent
-env_file = base_dir / ".env"
-if env_file.exists():
-    load_dotenv(env_file)
+root_env = base_dir.parent / ".env"
+backend_env = base_dir / ".env"
+
+if root_env.exists():
+    load_dotenv(root_env, override=True)
+elif backend_env.exists():
+    load_dotenv(backend_env, override=True)
 else:
-    load_dotenv()
+    load_dotenv(override=True)
 
 raw_db = os.getenv("DATABASE_URL", "sqlite:///./sankalp.db")
 if raw_db.startswith("sqlite:///./"):
@@ -31,6 +35,9 @@ PURGE_GRACE_HOURS = int(os.getenv("PURGE_GRACE_HOURS", "48"))
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5180")
 APP_A_ORIGIN = os.getenv("APP_A_ORIGIN", "http://localhost:5174")
 APP_B_ORIGIN = os.getenv("APP_B_ORIGIN", "http://localhost:5175")
+APP_C_ORIGIN = os.getenv("APP_C_ORIGIN", "http://localhost:5176")
+APP_D_ORIGIN = os.getenv("APP_D_ORIGIN", "http://localhost:5177")
+APP_E_ORIGIN = os.getenv("APP_E_ORIGIN", "http://localhost:5178")
 
 # Environment indicator
 IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"

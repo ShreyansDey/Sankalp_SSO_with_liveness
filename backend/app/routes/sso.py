@@ -21,16 +21,7 @@ from app.deps import get_current_session, get_current_user_from_token
 
 router = APIRouter(tags=["sso"])
 
-class TokenRequest(BaseModel):
-    grant_type: str = "authorization_code"
-    code: str
-    client_id: str
-    client_secret: str
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-    client_id: str
-    client_secret: str
+from app.schemas.sso import TokenRequest, RefreshRequest
 
 def verify_product_secret(product: Product, secret: str) -> bool:
     """Verify client secret against stored hash (supports SHA-256 or Argon2)."""
@@ -63,12 +54,19 @@ def authorize(
     # Security check: redirect_uri must match registered address or valid allowed host path
     req_parsed = urlparse(redirect_uri)
     is_valid = False
-    if product.redirect_uri.rstrip("/") == redirect_uri.rstrip("/"):
+    registered_norm = product.redirect_uri.rstrip("/")
+    incoming_norm = redirect_uri.rstrip("/")
+
+    if registered_norm == incoming_norm:
         is_valid = True
     elif req_parsed.path.rstrip("/").endswith("callback"):
-        allowed_host_pattern = r"^(localhost|127\.0\.0\.1|.*\.ngrok-free\.app|.*\.ngrok-free\.dev|.*\.ngrok\.io|.*\.ngrok\.app)$"
-        if re.match(allowed_host_pattern, req_parsed.hostname or ""):
+        reg_p = urlparse(registered_norm)
+        if reg_p.port == req_parsed.port and reg_p.path == req_parsed.path:
             is_valid = True
+        else:
+            allowed_host_pattern = r"^(localhost|127\.0\.0\.1|.*\.ngrok-free\.app|.*\.ngrok-free\.dev|.*\.ngrok\.io|.*\.ngrok\.app|.*\.sa)$"
+            if re.match(allowed_host_pattern, req_parsed.hostname or ""):
+                is_valid = True
 
     if not is_valid:
         raise HTTPException(

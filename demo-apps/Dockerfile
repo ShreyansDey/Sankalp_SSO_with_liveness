@@ -4,5 +4,6 @@ WORKDIR /app
 
 COPY . .
 
-EXPOSE 5174 5175
+EXPOSE 5174 5175 5176 5177 5178
+
 CMD ["python", "serve_demo_apps.py"]

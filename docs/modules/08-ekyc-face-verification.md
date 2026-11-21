@@ -26,6 +26,8 @@ The **e-KYC & Biometric Face Verification** module binds digital accounts to rea
 4. **Daily 1:1 Biometric Face Verification**:
    - The next day, when the student logs in, the camera verifies physical liveness (head turn and blinks) and extracts a unit-normalized 128D mathematical embedding.
    - It compares this live embedding against the approved profile using **Cosine Similarity**. If the score $\ge 0.40$, access is granted. If a friend or impostor tries to use the student's password, they are rejected with `face_mismatch`!
+5. **Multi-Face Candidate Matching & Strict Admin Face Lock**:
+   - For administrative accounts, the engine supports evaluating the live face against multiple enrolled candidate vectors (`admin_faces`). The administrator can enforce strict biometric verification on every login (`require_face_match = true`).
 
 ---
 
@@ -34,8 +36,10 @@ The **e-KYC & Biometric Face Verification** module binds digital accounts to rea
 This module implements the following core specifications from `docs/specs/srs.md`:
 - **M9**: Admin verification review desk: inspect live face capture vs. uploaded ID card before account activation.
 - **M10**: Biometric 1:1 facial matching: live webcam capture compared against approved 128D deep vector embedding (cosine similarity $\ge 0.40$).
+- **M11**: Administrator Biometric Face Lock with multi-face candidate matching.
 - **FR9**: e-KYC gating: accounts created in `pending_approval` status; logins blocked until admin approval.
 - **FR10**: Real-time facial feature extraction and cosine distance verification under 30ms on standard CPUs.
+- **FR11**: Biometric face lock enforcement on admin accounts (`require_face_match` and `admin_faces`).
 
 ---
 

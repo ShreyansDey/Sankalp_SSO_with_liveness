@@ -4,11 +4,26 @@ import smtplib
 import ssl
 import logging
 import threading
+import email.utils
 from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from typing import Optional, Tuple, List, Dict, Any
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
+def get_ist_now_str() -> str:
+    """Returns formatted current Indian Standard Time (IST - UTC+05:30)."""
+    return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
+
+def to_ist_str(dt: Optional[datetime] = None) -> str:
+    if dt is None:
+        return get_ist_now_str()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).strftime("%Y-%m-%d %I:%M:%S %p IST")
 
 from app.config import (
     SMTP_HOST,
@@ -94,7 +109,7 @@ def send_email(
         )
         return False
 
-    from_name = EMAIL_FROM_NAME or "Real Access (Sankalp SSO)"
+    from_name = (EMAIL_FROM_NAME or "Real Access (Sankalp SSO)").strip('"\'').replace("_", " ")
     from_addr = EMAIL_FROM or SMTP_USER
 
     # When inline images are present, wrap in multipart/related -> multipart/alternative
@@ -133,6 +148,12 @@ def send_email(
         if html_content:
             msg.attach(MIMEText(html_content, "html", "utf-8"))
         msg_to_send = msg
+
+    msg_to_send["Reply-To"] = from_addr
+    msg_to_send["Date"] = email.utils.formatdate(localtime=True)
+    msg_to_send["Message-ID"] = email.utils.make_msgid(domain=from_addr.split("@")[-1] if "@" in from_addr else "gmail.com")
+    msg_to_send["Auto-Submitted"] = "auto-generated"
+    msg_to_send["X-Auto-Response-Suppress"] = "All"
 
     clean_pass = _clean_smtp_password()
 
@@ -597,6 +618,87 @@ University Administration & Team Sankalp"""
     return _dispatch_in_background(to_email, subject, text_content, html, assets) if background else send_email(to_email, subject, text_content, html, assets)
 
 
+def build_password_changed_email(name: str, ip: str, user_agent: str, time_str: str) -> tuple[str, str]:
+    """Generate email templates when password has been successfully changed."""
+    greeting = name.strip() if name and name.strip() else "Member"
+    text_content = f"""Hello {greeting},
+
+Security Notice: The password for your Real Access account was just updated.
+
+Details:
+- Time: {time_str}
+- IP Address: {ip}
+- Device / Browser: {user_agent}
+
+Your previous password has been permanently disabled, and all existing active sessions have been invalidated across all campus club portals.
+
+If you made this change, no further action is required.
+If you did NOT authorize this change, please contact your university administrator immediately.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Security Alert: Password Changed</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #12171E;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2DCCF; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background-color: #12171E; padding: 24px 32px;">
+              <span style="color: #F5F1E8; font-size: 20px; font-weight: 600; font-family: Georgia, serif;">Real Access</span>
+              <span style="color: #D9822B; font-size: 11px; font-weight: 700; margin-left: 8px; letter-spacing: 1.5px; text-transform: uppercase;">SECURITY ALERT</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 36px;">
+              <h2 style="margin: 0 0 16px; font-size: 20px; font-family: Georgia, serif; color: #12171E;">Password Changed Successfully</h2>
+              <p style="color: #5A6270; font-size: 15px; line-height: 1.55; margin: 0 0 20px;">
+                Hello <strong>{greeting}</strong>, your account password was recently changed. Your previous password has been permanently disabled, and all active login sessions have been terminated.
+              </p>
+              <div style="background-color: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 8px; padding: 16px; margin: 20px 0; font-size: 13.5px; color: #3A4250;">
+                <p style="margin: 4px 0;"><strong>Time:</strong> {time_str}</p>
+                <p style="margin: 4px 0;"><strong>IP Address:</strong> {ip}</p>
+                <p style="margin: 4px 0; word-break: break-all;"><strong>Device:</strong> {user_agent}</p>
+              </div>
+              <p style="color: #8A92A0; font-size: 12px; margin: 20px 0 0; line-height: 1.5; border-top: 1px solid #EAE5D9; padding-top: 16px;">
+                If you performed this change, you can safely disregard this email.<br/>
+                <strong>Did not change your password?</strong> Please contact an administrator immediately.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return text_content, html_content
+
+
+def send_password_changed_email(to_email: str, name: str, ip: str, user_agent: str, background: bool = True) -> bool:
+    """Dispatches password changed security alert email asynchronously."""
+    time_str = get_ist_now_str()
+    subject = "Security Alert: Real Access Password Changed"
+    text_content, html_content = build_password_changed_email(name, ip, user_agent, time_str)
+    if background:
+        thread = threading.Thread(
+            target=send_email,
+            args=(to_email, subject, text_content, html_content),
+            daemon=True
+        )
+        thread.start()
+        logger.info("Dispatched password changed notification email to %s", to_email)
+        return True
+    else:
+        return send_email(to_email, subject, text_content, html_content)
+
+
+
 def build_mark_as_left_email(name: str, renew_url: str) -> tuple[str, str]:
     """Generate email templates when user is marked as left by admin (48h purge notice)."""
     greeting_name = name.strip() if name and name.strip() else "Member"
@@ -818,7 +920,7 @@ def send_mark_as_left_email(
     background: bool = True
 ) -> bool:
     """Dispatches 48-hour recovery notice when admin marks user as left."""
-    subject = "⚠️ Notice: Access Revoked by Administrator — 48-Hour Purge Window"
+    subject = "Sankalp SSO: Notice of Account Deactivation & 48-Hour Recovery Window"
     text_content, html_content = build_mark_as_left_email(name, renew_url)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -836,7 +938,7 @@ def send_expired_email(
     background: bool = True
 ) -> bool:
     """Dispatches 48-hour recovery notice when user access expires automatically."""
-    subject = "⚠️ Notice: Activity Limit / Membership Expired — 48-Hour Purge Window"
+    subject = "Sankalp SSO: Notice of Membership Expiration & 48-Hour Recovery Window"
     text_content, html_content = build_expired_email(name, renew_url, reason)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -854,7 +956,7 @@ def send_renewal_status_email(
     background: bool = True
 ) -> bool:
     """Dispatches approval or decline notice for a renewal request."""
-    subject = "✅ Your Access Renewal Request has been Approved!" if status.lower() == "approved" else "❌ Update: Your Access Renewal Request was Declined"
+    subject = "Sankalp SSO: Access Renewal Request Approved" if status.lower() == "approved" else "Sankalp SSO: Access Renewal Request Status Update"
     text_content, html_content = build_renewal_status_email(name, status, admin_notes)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
@@ -975,7 +1077,7 @@ def send_final_purge_takeout_email(
     background: bool = True
 ) -> bool:
     """Dispatches final data export & permanent database purge notification email."""
-    subject = "📦 Your Personal Data Export & Notice of Permanent Database Purge"
+    subject = "Sankalp SSO: Personal Data Export & Notice of Permanent Database Purge"
     text_content, html_content = build_final_purge_takeout_email(user_data)
     if background:
         thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)

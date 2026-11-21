@@ -200,9 +200,16 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
   const CLIENT_ID = "app-b";
   const CLIENT_SECRET = "secret-app-b-key-2026";
   const isDirectPort = window.location.port === "5175";
-  const AUTH_SERVER = isDirectPort ? "http://localhost:8001" : window.location.origin;
-  const REDIRECT_URI = isDirectPort ? "http://localhost:5175/callback" : `${window.location.origin}/app-b/callback`;
-  const CENTRAL_PORTAL = isDirectPort ? "${CENTRAL_PORTAL}" : window.location.origin;
+  const isSaDomain = window.location.hostname.endsWith(".sa");
+  const AUTH_SERVER = isSaDomain
+    ? window.location.protocol + "//sankalp.sa"
+    : (isDirectPort ? `${window.location.protocol}//${window.location.hostname}:8001` : window.location.origin);
+  const REDIRECT_URI = isSaDomain
+    ? `${window.location.origin}/callback`
+    : (isDirectPort ? `${window.location.protocol}//${window.location.hostname}:5175/callback` : `${window.location.origin}/app-b/callback`);
+  const CENTRAL_PORTAL = isSaDomain
+    ? `${window.location.protocol}//sankalp.sa`
+    : (isDirectPort ? "http://localhost:5180" : window.location.origin);
 
   function initiateLogin() {
     const state = "state_robotics_" + Math.random().toString(36).substring(7);
