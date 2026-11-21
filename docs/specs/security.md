@@ -20,6 +20,8 @@ flowchart TD
         T5["Threat 5: Stolen Access Token (MITM)"]
         T6["Threat 6: Database Compromise / Leak"]
         T7["Threat 7: Rogue Administrator Activity"]
+        T8["Threat 8: Admin Credential Takeover"]
+        T9["Threat 9: Silent Account Compromise"]
     end
 
     subgraph Defenses ["Sankalp Multi-Layered Defenses"]
@@ -30,6 +32,8 @@ flowchart TD
         D5["10-Minute Ephemeral JWTs + Revocable Refresh Tokens"]
         D6["Argon2id Hashes + SHA-256 Digests + 128D Vectors Only"]
         D7["Append-Only Tamper-Resistant Audit Trail"]
+        D8["Admin Biometric Face Lock & Multi-Face Verification"]
+        D9["Instant Login & Password Changed Email Alerts (IST)"]
     end
 
     T1 --> D1
@@ -39,6 +43,8 @@ flowchart TD
     T5 --> D5
     T6 --> D6
     T7 --> D7
+    T8 --> D8
+    T9 --> D9
 ```
 
 | Threat Vector | Attack Scenario | Sankalp Countermeasure (How We Stop It) |
@@ -50,6 +56,8 @@ flowchart TD
 | **Token Interception (MITM)** | Attacker sniffs an access token transmitted across an untrusted network. | Access tokens are strictly limited to **10 minutes** (`ACCESS_TOKEN_MINUTES = 10`). Once expired, the attacker cannot refresh it because refresh tokens require product credentials and are verified against database account status on every call. |
 | **Full Database Leak** | An attacker gains unauthorized read access to the SQL database. | **Zero Plaintext Secrets**: Passwords use memory-hard Argon2id hashes; tokens, codes, and secrets use SHA-256 digests; biometrics are stored solely as 128-dimensional unit vectors. An attacker cannot reverse these vectors into facial photographs or recover user passwords. |
 | **Administrator Privilege Misuse** | A compromised administrator arbitrarily disables users or alters club configurations. | Every administrative action (`invite_created`, `user_marked_left`, `delete_approved`, etc.) is permanently recorded in an append-only `audit_log` with actor identity and timestamp. |
+| **Admin Credential Takeover** | Attacker obtains administrator credentials via phishing or keylogger. | **Admin Biometric Face Lock**: When enabled, administrative login is strictly gated behind 1:1 biometric matching against pre-authorized administrator face embeddings (`admin_faces`). Having the password alone cannot unlock the Admin console. |
+| **Silent Account Compromise** | Attacker logs in or changes password without the legitimate student knowing. | **Real-Time Security Email Alerts**: Every successful sign-in dispatches an alert email containing client IP, device User-Agent, and Indian Standard Time (IST). Resetting passwords triggers immediate alerts and destroys all active sessions. |
 
 ---
 

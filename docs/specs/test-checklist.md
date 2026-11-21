@@ -53,6 +53,14 @@
 - [x] **TC-AUD-02**: Sensitive credentials (`password`, `token`, `secret`, `hash`) are stripped by sanitization filter.
 - [x] **TC-AUD-03**: Database contains unit-normalized 128D mathematical vectors; zero continuous video stored.
 
+### 1.6. Administrator Biometric Face Lock & Security Alerts
+- [x] **TC-AFL-01**: Admin registers authorized biometric face profile (`POST /admin/face-profiles`); embedding stored in `admin_faces`.
+- [x] **TC-AFL-02**: Admin Face Lock restriction toggle (`POST /admin/face-profiles/toggle-restriction`) enforces biometric facial matching on admin logins.
+- [x] **TC-AFL-03**: Non-authorized face attempting admin login when face lock is active is rejected with `401 face_mismatch`.
+- [x] **TC-ALT-01**: Successful login asynchronously delivers alert email to user with IP, User-Agent, and IST timestamp.
+- [x] **TC-ALT-02**: Password reset asynchronously dispatches password changed alert email and revokes all active sessions.
+- [x] **TC-INV-01**: Admin creating an invite automatically sends invitation email to candidate with pre-authorized link.
+
 ---
 
 ## 📊 2. Measured Benchmark Performance

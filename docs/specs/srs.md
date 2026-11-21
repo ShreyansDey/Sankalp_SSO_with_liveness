@@ -90,11 +90,14 @@ mindmap
       M8: 5 Connected Campus Club Applications
       M9: Admin e-KYC Verification Review Desk
       M10: 1-to-1 Biometric Face Verification
+      M11: Administrator Biometric Face Lock & Multi-Face Profiles
     Should Have
       S1: Dynamic EAR Eye-Blink Calibration
       S2: Challenge Rate Limiting
       S3: SMTP Password Reset Workflow
       S4: 30-Day Account Deletion Guardrail
+      S5: Automated Security Alerts (Logins, Password Resets, Invites)
+      S6: Universal Indian Standard Time (IST) Formatting
     Could Have
       C1: IP / Device Anomaly Flagging
       C2: Admin-Approved Camera Fallback UI
@@ -243,6 +246,25 @@ stateDiagram-v2
   5. Threshold verification:
      - If score $\ge 0.40$: Authentication succeeds; SSO session cookie is granted.
      - If score $< 0.40$: Authentication rejected with HTTP 401 `face_mismatch`; security audit event logged.
+
+---
+
+### FR11: Administrator Biometric Face Lock & Multi-Face Management
+- To defend against administrative credential compromise, the system allows the Administrator Dashboard to be strictly gated behind biometric facial recognition.
+- **Multi-Face Enrollment**:
+  - The primary administrator can enroll multiple authorized facial profiles (e.g. Co-admins, faculty advisors) into `admin_faces`.
+  - Each profile stores an ID, full name, 128D mathematical embedding, and snapshot image.
+- **Strict Face Lock Toggle (`require_face_match`)**:
+  - When enabled, administrative login requires both valid credentials and a successful biometric 1:1 match against any enrolled administrator profile ($\text{Cosine Sim} \ge 0.40$).
+  - If an attacker possesses the admin password but cannot present an authorized face, login is rejected with HTTP 401 `face_mismatch`.
+
+---
+
+### FR12: Automated Security Email Notifications & IST Timestamping
+- **Real-Time Login Alerts**: Every successful user or administrator login asynchronously triggers an email notification to the account owner with the client IP address, browser User-Agent, and login timestamp.
+- **Password Change Alerts**: Resetting a password dispatches an instant security alert warning the user of the modification, while terminating all active sessions.
+- **Automated Invite Delivery**: Creating an invite automatically delivers an email to the prospective member with their direct onboarding link.
+- **Universal Indian Standard Time (IST)**: All audit records, security emails, and frontend user interface timestamps are displayed in standardized IST (`YYYY-MM-DD HH:mm:ss IST`).
 
 ---
 

@@ -18,6 +18,8 @@ Think of it like the **Main Admissions and Registrar Office** of a university ca
 3. **Checking Your Credentials (Login)**: When you sign in, the system blends the password you just typed and checks if it matches the scrambled version on file. If your account has been approved by the dean, it lets you proceed to the biometric camera check.
 4. **The Central Visitor Badge (SSO Session Cookie)**: Once you prove who you are, the server hands your browser a secure digital badge (`sso_session` cookie). As long as you hold this badge, you can open connected campus clubs without typing your password again.
 5. **Emergency Key Replacement (Forgot Password)**: If you forget your password, the system emails you a secure, single-use 15-minute reset code via university email. Resetting your password immediately destroys all active visitor badges everywhere to protect your account.
+6. **Automated Login & Password Security Alerts**: Every successful sign-in asynchronously dispatches an alert email containing the client IP, browser User-Agent, and Indian Standard Time (IST) timestamp. Resetting passwords triggers an immediate security alert warning the user of the modification, while permanently invalidating the previous password and tearing down all active sessions.
+7. **Direct Email Invitations**: Pre-authorized invitation links created by administrators are automatically delivered to the candidate's inbox via institutional SMTP.
 
 ---
 
@@ -29,6 +31,7 @@ This module implements the following core specifications from `docs/specs/srs.md
 - **FR1**: Enforcing account states (`pending_approval`, `active`, `disabled`, `deleted`). Logout terminates sessions without altering account records.
 - **FR4**: Dual-token infrastructure support and token hashing.
 - **FR9**: e-KYC gating preventing unapproved applicant logins.
+- **FR12**: Automated security notifications (login alerts, password change alerts, automated invite delivery) and universal Indian Standard Time (IST) timestamping.
 
 ---
 
@@ -97,6 +100,34 @@ flowchart TD
     EnterNewPass --> SubmitNew["POST /auth/reset-password"]
     SubmitNew --> AtomicUpdate["1. Update password_hash (Argon2)<br/>2. Mark token as used_at = NOW()<br/>3. Revoke all active sso_sessions in DB"]
     AtomicUpdate --> Done["Password Reset Complete!<br/>Redirect to Login"]
+```
+
+---
+
+### 3.3. Automated Security Alert & Notification Pipeline
+
+```mermaid
+flowchart LR
+    subgraph TriggerZone ["Security Events"]
+        E1["User Logged In<br/>(POST /auth/login)"]
+        E2["Password Reset<br/>(POST /auth/reset-password)"]
+        E3["Invite Created<br/>(POST /admin/invites)"]
+    end
+
+    subgraph ServiceZone ["Email & Security Worker (FastAPI)"]
+        Meta["Capture Metadata:<br/>- Client IP<br/>- User-Agent (Device/Browser)<br/>- IST Timestamp (to_ist_str)"]
+        Worker["Background SMTP TLS Dispatcher<br/>(email_service.py)"]
+    end
+
+    subgraph UserZone ["Student Inbox"]
+        M1["📨 Login Alert Email<br/>'New sign-in from Chrome on Windows'"]
+        M2["🚨 Password Changed Alert<br/>'Your password was updated at 07:15 IST'"]
+        M3["💌 Official Invitation Link<br/>'You are invited to join Sankalp SSO'"]
+    end
+
+    E1 --> Meta --> Worker --> M1
+    E2 --> Meta --> Worker --> M2
+    E3 --> Worker --> M3
 ```
 
 ---

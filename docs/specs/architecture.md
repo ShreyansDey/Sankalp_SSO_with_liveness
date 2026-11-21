@@ -286,16 +286,27 @@ Sankalp_prep_pack/
 │   └── requirements.txt            # Python dependencies
 ├── frontend/
 │   ├── src/
+│   │   ├── components/
+│   │   │   └── admin/
+│   │   │       ├── AdminApplicationsTab.jsx # e-KYC review desk
+│   │   │       ├── AdminAuditTab.jsx        # Real-time tamper-resistant audit viewer
+│   │   │       ├── AdminFaceLockTab.jsx     # Biometric face lock & multi-admin profiles
+│   │   │       ├── AdminInvitesTab.jsx      # Member invitation desk & email dispatches
+│   │   │       ├── AdminMembersTab.jsx      # Member directory & instant Mark as Left
+│   │   │       └── AdminRenewalsTab.jsx     # 48-hour recovery desk & countdown timer
 │   │   ├── pages/
-│   │   │   ├── Admin.jsx           # Management console & e-KYC review desk
+│   │   │   ├── Admin.jsx           # Tabbed management cockpit
 │   │   │   ├── AdminLogin.jsx      # Dedicated administrator login screen
 │   │   │   ├── Clubs.jsx           # Campus Clubs launcher hub
 │   │   │   ├── ForgotPassword.jsx  # Self-service password recovery request
 │   │   │   ├── Liveness.jsx        # MediaPipe Face Mesh 3-step liveness camera
 │   │   │   ├── Login.jsx           # Central student sign-in portal
 │   │   │   ├── Register.jsx        # 3-step e-KYC onboarding registration form
+│   │   │   ├── Renew.jsx           # 48-hour self-service member renewal appeals
 │   │   │   ├── ResetPassword.jsx   # Token verification and password update
 │   │   │   └── Signout.jsx         # Central logout and session termination
+│   │   ├── utils/
+│   │   │   └── time.js             # Universal Indian Standard Time (IST) formatting
 │   │   ├── api.js                  # Centralized Axios HTTP client
 │   │   ├── App.jsx                 # React Router URL navigation
 │   │   └── main.jsx                # React DOM mount point

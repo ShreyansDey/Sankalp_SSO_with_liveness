@@ -85,6 +85,9 @@
 - [x] Integrate daily login biometric verification (`POST /liveness/result`):
   - [x] Live frame evaluated against approved enrollment embedding.
   - [x] Reject impostors with `401 face_mismatch` and record security audit event.
+- [x] Implement Administrator Biometric Face Lock & Multi-Face Management (`admin_faces`, `require_face_match`, `AdminFaceLockTab.jsx`).
+- [x] Implement Real-Time Security Alerts (Login Alerts, Password Changed Notices, and Automated SMTP Invites).
+- [x] Enforce Universal Indian Standard Time (IST) formatting across frontend tables and backend security notifications.
 - [x] **Checkpoint 4 Verification**: Complete. Documented in `08-ekyc-face-verification.md`.
 
 ---

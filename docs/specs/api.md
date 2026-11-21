@@ -145,6 +145,7 @@ If you have never built a web backend, here is how clients (browsers and apps) t
     ```
   - `401 Unauthorized`: Password mismatch (`invalid_credentials`).
   - `403 Forbidden`: Account is `disabled` or still `pending_approval`.
+- **Security Alert Notification**: Upon successful credential verification, an asynchronous email alert (`send_login_alert_email`) is dispatched to the user's registered inbox with client IP, browser User-Agent, and Indian Standard Time (IST) timestamp.
 
 ---
 
@@ -197,6 +198,10 @@ If you have never built a web backend, here is how clients (browsers and apps) t
   }
   ```
 - **Response**: `200 OK` with `{"status": "ok", "message": "Password updated successfully."}`.
+- **Security Actions**:
+  1. Updates password hash with memory-hard Argon2id.
+  2. Destroys all active SSO sessions across all devices (`sso_sessions.revoked_at = NOW()`).
+  3. Dispatches immediate **Password Changed Security Alert Email** (`send_password_changed_email`) to user's registered inbox with client IP, device User-Agent, and Indian Standard Time (IST) timestamp.
 
 ---
 
@@ -232,9 +237,9 @@ If you have never built a web backend, here is how clients (browsers and apps) t
   }
   ```
 - **Responses**:
-  - `200 OK`: Liveness passed and face similarity $\ge 0.40$. Returns `Set-Cookie: sso_session=<id>; HttpOnly; SameSite=Lax`.
+  - `200 OK`: Liveness passed and face similarity $\ge 0.40$ (evaluated against approved user embedding or any authorized `admin_faces` profiles). Returns `Set-Cookie: sso_session=<id>; HttpOnly; SameSite=Lax`.
   - `400 Bad Request`: Code expired (older than 30 seconds) or already used.
-  - `401 Unauthorized`: Face similarity $< 0.40$ (`face_mismatch`).
+  - `401 Unauthorized`: Face similarity $< 0.40$ (`face_mismatch`). If Admin Face Lock is enforced, failure to match an authorized administrator profile blocks login and emits `admin_face_mismatch` audit event.
 
 ---
 
@@ -352,6 +357,7 @@ If you have never built a web backend, here is how clients (browsers and apps) t
 ### 6.6. Create Member Invitation (`POST /admin/invites`)
 - **Request Body**: `{"email": "student@ju.edu", "role": "member", "term_end": "2027-06-30"}`
 - **Response**: `200 OK` with shareable link: `http://localhost:5173/signup?token=...`.
+- **Automated Email Dispatch**: Asynchronously delivers an invitation email to `student@ju.edu` via SMTP containing the direct registration link with pre-authorized token.
 
 ---
 
@@ -371,6 +377,54 @@ If you have never built a web backend, here is how clients (browsers and apps) t
 
 ### 6.8. Inspect Security Audit Log (`GET /admin/audit?limit=50`)
 - **Purpose**: Retrieves newest-first tamper-resistant audit entries for forensic review.
+
+---
+
+### 6.9. Administrator Biometric Face Lock & Multi-Face Management Endpoints
+
+#### 6.9.1. List Admin Face Profiles (`GET /admin/face-profiles`)
+- **Headers**: Admin session cookie required (`require_admin_user`).
+- **Response**:
+  ```json
+  {
+    "profiles": [
+      {
+        "id": "profile-uuid-1",
+        "name": "Shaan (Primary Admin)",
+        "photo_url": "/api/admin/face-profiles/profile-uuid-1/photo",
+        "created_at": "2026-11-21 07:15:00 IST"
+      }
+    ],
+    "require_face_match": true,
+    "has_profiles": true
+  }
+  ```
+
+#### 6.9.2. Enroll Authorized Admin Face Profile (`POST /admin/face-profiles`)
+- **Headers**: Admin session cookie required.
+- **Request Body**:
+  ```json
+  {
+    "name": "Arka (Co-Admin)",
+    "face_photo": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+  }
+  ```
+- **Execution**: Extracts 128D embedding using YuNet + SFace, saves portrait to `uploads/faces/`, and appends new profile object into `admin.admin_faces` JSON array in database.
+- **Response**: `200 OK` with `{"status": "ok", "message": "Admin face profile added successfully.", "profile": {...}}`.
+
+#### 6.9.3. Delete Admin Face Profile (`DELETE /admin/face-profiles/{profile_id}`)
+- **Headers**: Admin session cookie required.
+- **Execution**: Removes specified profile from `admin.admin_faces` JSON array and purges associated image from disk.
+- **Response**: `200 OK` with `{"status": "ok", "message": "Admin face profile removed."}`.
+
+#### 6.9.4. Toggle Admin Face Restriction (`POST /admin/face-profiles/toggle-restriction`)
+- **Headers**: Admin session cookie required.
+- **Execution**: Toggles `require_face_match` between `true` and `false`. When enabled, the administrator **must** match one of the enrolled `admin_faces` profiles during liveness verification ($\text{Cosine Sim} \ge 0.40$).
+- **Response**: `200 OK` with `{"status": "ok", "require_face_match": true, "message": "Biometric face lock enforced for admin logins."}`.
+
+#### 6.9.5. Serve Admin Face Profile Photo (`GET /admin/face-profiles/{profile_id}/photo`)
+- **Headers**: Admin session cookie required.
+- **Response**: Binary JPEG/PNG image stream of the registered administrator portrait.
 
 ---
 

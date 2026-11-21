@@ -2,8 +2,15 @@
 
 **Status:** Done · **Owner:** Arka (Frontend Lead) & Shaan (Backend Lead) · **Date:** 2026-11-20  
 **Primary Source Files:**  
-- `frontend/src/pages/Admin.jsx`
-- `backend/app/routes/admin.py`
+- `frontend/src/pages/Admin.jsx` (Tabbed Management Cockpit)
+- `frontend/src/components/admin/AdminFaceLockTab.jsx` (Biometric Face Lock & Multi-Face Management)
+- `frontend/src/components/admin/AdminMembersTab.jsx` (Member Directory & Instant Mark as Left)
+- `frontend/src/components/admin/AdminInvitesTab.jsx` (Invitation Desk with Automated SMTP Dispatch)
+- `frontend/src/components/admin/AdminApplicationsTab.jsx` (e-KYC Verification Review Desk)
+- `frontend/src/components/admin/AdminRenewalsTab.jsx` (48-Hour Recovery Desk with Countdown Timer)
+- `frontend/src/components/admin/AdminAuditTab.jsx` (Real-Time Tamper-Resistant Audit Trail)
+- `frontend/src/utils/time.js` (Universal Indian Standard Time / IST Formatter)
+- `backend/app/routes/admin.py` (FastAPI Administrative REST API)
 - `backend/app/deps.py`
 - `backend/app/models.py`
 
@@ -22,6 +29,10 @@ The **Admin Dashboard** is the central cockpit for university deans, lab supervi
    - Have you ever clicked "Delete" on something important by mistake? In Sankalp, you cannot accidentally wipe out a student's account. An account must first be disabled, and an un-skippable 30-day waiting period must pass before permanent deletion can be confirmed.
 4. **The e-KYC Verification Review Desk**:
    - When new students apply, administrators view the student's live webcam snapshot right next to their uploaded student ID card before granting access.
+5. **Biometric Face Lock & Multi-Admin Profiles**:
+   - What if someone steals the administrator's password? The **Face Lock Tab** allows the admin cockpit to be strictly locked behind facial biometrics. Multiple co-administrators can enroll their faces. When restriction is enabled, logging in as an admin requires passing 3D liveness AND matching one of the authorized face profiles!
+6. **Universal Indian Standard Time (IST)**:
+   - All timestamps across member activity, audit logs, renewal countdowns, and invites are automatically rendered in local Indian Standard Time (IST) via `frontend/src/utils/time.js`.
 
 ---
 
@@ -29,10 +40,13 @@ The **Admin Dashboard** is the central cockpit for university deans, lab supervi
 
 This module implements the following core specifications from `docs/specs/srs.md`:
 - **M5**: Admin "Mark as left" blocks all connected campus products at once.
+- **M9**: Administrator review desk for inspecting and approving e-KYC applications.
+- **M11**: Administrator Biometric Face Lock with multi-face candidate matching.
 - **FR2**: Disabling an account revokes the SSO session and all refresh tokens immediately.
 - **FR3**: Account deletion requires prior disabled status, a 30-day waiting period, and explicit administrator approval.
 - **FR6**: External product registration with unique client IDs and secrets.
-- **M9**: Administrator review desk for inspecting and approving e-KYC applications.
+- **FR11**: Biometric face lock enforcement on admin accounts (`require_face_match` and `admin_faces`).
+- **FR12**: Universal IST timestamping across all administrative records.
 
 ---
 
@@ -90,6 +104,41 @@ flowchart TD
     
     ApproveDelete --> SetDeleted["Set status = 'deleted' in DB<br/>Write 'delete_approved' to audit_log"]
     SetDeleted --> Success["Account Permanently Deleted / Archived"]
+```
+
+---
+
+### 3.3. Administrator Biometric Face Lock & Multi-Face Verification Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Administrator
+    actor Attacker as Impostor with Leaked Password
+    participant Cockpit as Admin Console (:5173/admin)
+    participant Auth as FastAPI Auth & Admin Engine (:8000)
+    participant Vision as OpenCV YuNet + SFace Engine
+    participant DB as SQL Database
+
+    Note over Admin, DB: Enrollment: Registering Authorized Admin Faces
+    Admin->>Cockpit: Opens Face Lock Tab -> Snaps webcam portrait
+    Cockpit->>Auth: POST /admin/face-profiles { name: "Shaan", face_photo: "..." }
+    Auth->>Vision: extract_face_embedding(photo) -> 128D Vector
+    Auth->>DB: Append profile into admin_faces JSON
+    Auth->>DB: Set require_face_match = TRUE
+    Auth-->>Cockpit: 200 OK: "Biometric Face Lock Active"
+
+    Note over Attacker, Auth: Attack Scenario: Impostor attempts Admin Login
+    Attacker->>Cockpit: Types Admin Email & Password
+    Cockpit->>Auth: POST /auth/login
+    Auth-->>Attacker: Password Correct! Next: "liveness"
+    Attacker->>Cockpit: Completes Head Turn + Blinks
+    Cockpit->>Auth: POST /liveness/result (with Attacker's Live Snapshot)
+    Auth->>DB: Query admin_faces candidate vectors
+    Auth->>Vision: verify_live_face_against_candidates(snapshot, candidate_vectors)
+    Vision-->>Auth: Mismatch! Best Score: 0.16 < 0.40
+    Auth->>DB: Write 'admin_face_mismatch' to audit_log
+    Auth-->>Cockpit: 401 Unauthorized: face_mismatch (ACCESS BLOCKED!)
 ```
 
 ---

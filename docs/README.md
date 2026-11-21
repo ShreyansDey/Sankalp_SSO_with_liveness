@@ -23,6 +23,8 @@ Imagine entering a modern university campus:
    - **Biometric Identity Verification (1:1 Face Match)**: Not only must you be alive, but your face must mathematically match the student ID profile verified during registration.
    - **Immediate Revocation ("Mark as Left")**: When a student graduates or leaves, the campus administrator clicks **"Mark as left"**. In less than 0.2 seconds, access across **all 5 club facilities is terminated instantly**.
    - **Automatic Cleanup**: If a student's term ends or they stop logging in for 60 days, background janitor software automatically locks the account so no forgotten "ghost accounts" remain.
+   - **Admin Biometric Face Lock**: The administrator console can be strictly locked behind facial biometrics, supporting multi-admin face profiles to prevent unauthorized takeover even if the admin password is leaked.
+   - **Real-Time Security Email Alerts**: Users receive instant email notifications on every successful login and password change, with IP address, browser User-Agent, and Indian Standard Time (IST) timestamps.
 
 ---
 
@@ -179,6 +181,7 @@ All project documentation is structured into two main folders:
 | 06 | Audit Log | [**06-audit-log.md**](file:///docs/modules/06-audit-log.md) | Tamper-resistant audit trail, 20 fixed audit actions, PII/secret scrubbing, and query inspectors. |
 | 07 | Demo Apps | [**07-demo-apps.md**](file:///docs/modules/07-demo-apps.md) | 5 connected university campus clubs (ports 5174–5178), multi-port runner, OAuth client flow, and denial states. |
 | 08 | e-KYC & Biometrics | [**08-ekyc-face-verification.md**](file:///docs/modules/08-ekyc-face-verification.md) | Institutional e-KYC onboarding, OpenCV YuNet face detection, SFace 128D deep vector embedding extraction, and 1:1 Cosine Similarity matching ($\ge 0.40$). |
+| 09 | System Overview & Pitch | [**09-system-overview-and-pitch.md**](file:///docs/modules/09-system-overview-and-pitch.md) | Master system architecture analysis, competitive market matrix, corporate sponsorship ROI, judge conviction criteria, and 12-slide Claude PPTX presentation script. |
 
 ---
 

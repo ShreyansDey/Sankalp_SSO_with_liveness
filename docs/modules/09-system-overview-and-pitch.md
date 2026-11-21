@@ -150,14 +150,14 @@ Every capability in Sankalp SSO is cleanly isolated into a production-hardened m
 
 | Module | Name & Functionality | Primary Tech Stack | Key Architectural Guarantees |
 |---|---|---|---|
-| [**01**](file:///docs/modules/01-auth-core.md) | **Auth Core** | FastAPI, Argon2id, PyJWT, SMTP | Memory-hard password hashing (64MB RAM cost), HttpOnly cookies, timing-attack-resistant token verification, password reset workflows. |
+| [**01**](file:///docs/modules/01-auth-core.md) | **Auth Core** | FastAPI, Argon2id, PyJWT, SMTP | Memory-hard password hashing (64MB RAM cost), HttpOnly cookies, real-time login/password change alert emails, automated invites, IST timestamps. |
 | [**02**](file:///docs/modules/02-sso-flow.md) | **OAuth 2.0 SSO Flow** | OAuth 2.0 Auth Code Grant, PyJWT | 60-second single-use authorization codes, 10-minute ephemeral JWT access tokens, revocable refresh tokens, 350ms instant SSO handoff. |
 | [**03**](file:///docs/modules/03-liveness.md) | **3D Liveness Detection** | MediaPipe Face Mesh, WebGL/WASM | 468 landmark mesh, 3D Z-depth variance ($\sigma_Z \ge 0.015$), dynamic EAR blink detection, randomized 30s directional server challenges. |
-| [**04**](file:///docs/modules/04-admin-dashboard.md) | **Admin Governance & Review Desk** | React, Tailwind, REST API | Human-in-the-loop e-KYC review (webcam portrait vs. ID card), instant single-click member revocation ("Mark as Left"), audit stream. |
+| [**04**](file:///docs/modules/04-admin-dashboard.md) | **Admin Governance & Review Desk** | React, Tailwind, REST API | Human-in-the-loop e-KYC review, instant "Mark as Left" revocation, 6-tab cockpit with Biometric Face Lock, 48h renewals, and IST tables. |
 | [**05**](file:///docs/modules/05-cleanup-job.md) | **APScheduler Lifecycle Janitor** | APScheduler, SQLAlchemy | Automated daily pruning of expired memberships and 60-day inactive accounts, 48-hour recovery safety net before database purge. |
 | [**06**](file:///docs/modules/06-audit-log.md) | **Tamper-Resistant Audit Trail** | SQLAlchemy, Append-Only Storage | Structured logging of 20 fixed system events with actor attribution, client IP, timestamp, and automatic PII sanitization. |
 | [**07**](file:///docs/modules/07-demo-apps.md) | **5 Connected Campus Facilities** | Vanilla JS, Web APIs, Ports 5174–5178 | 5 decentralized apps (Photography, Robotics, AI, Chess, Athletics) validating OAuth tokens, simulating real physical facility access. |
-| [**08**](file:///docs/modules/08-ekyc-face-verification.md) | **e-KYC & Biometric Engine** | OpenCV YuNet + SFace | Deep 128-dimensional facial embedding extraction, unit-normalized cosine similarity ($\ge 0.40$), execution time $<30\text{ms}$ on commodity CPUs. |
+| [**08**](file:///docs/modules/08-ekyc-face-verification.md) | **e-KYC & Biometric Engine** | OpenCV YuNet + SFace | Deep 128D facial embeddings, multi-admin candidate matching, cosine similarity ($\ge 0.40$), execution time $<30\text{ms}$ on commodity CPUs. |
 
 ---
 

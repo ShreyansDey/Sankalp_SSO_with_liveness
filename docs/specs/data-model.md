@@ -40,6 +40,8 @@ erDiagram
         string face_photo_path "Relative path to enrollment face photo"
         datetime approved_at "When admin approved e-KYC"
         string approved_by FK "Admin User ID who approved"
+        boolean require_face_match "Enforce biometric face match on login"
+        json admin_faces "Multiple authorized face profiles for admin"
         datetime created_at "Account creation timestamp"
     }
 
@@ -145,6 +147,8 @@ Stores all registered identities, credentials, account status, and biometric enr
 | `face_photo_path` | `VARCHAR(500)` | Nullable | Relative disk path to the member's live webcam enrollment portrait. |
 | `approved_at` | `DATETIME` | Nullable | Timestamp when an administrator approved the student's e-KYC application. |
 | `approved_by` | `VARCHAR(36)` | Nullable, Foreign Key (`users.id`) | User ID of the administrator who reviewed and approved the application. |
+| `require_face_match` | `BOOLEAN` | Not Null, Default: `FALSE` | When enabled, enforces strict 1:1 biometric facial verification against approved embeddings on every login. |
+| `admin_faces` | `JSON` | Nullable | Array of authorized administrator biometric face profiles `[{"id": "...", "name": "...", "embedding": [...], "photo_path": "...", "created_at": "..."}]` for multi-admin face unlock. |
 | `created_at` | `DATETIME` | Not Null, Default: `UTC_NOW` | Timestamp when the account record was created. |
 
 ---
