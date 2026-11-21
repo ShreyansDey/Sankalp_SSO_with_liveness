@@ -53,7 +53,7 @@ def send_email(
         part_html = MIMEText(html_content, "html", "utf-8")
         msg.attach(part_html)
 
-    clean_pass = SMTP_PASS.strip() if SMTP_PASS else ""
+    clean_pass = SMTP_PASS.replace(" ", "").strip() if SMTP_PASS else ""
 
     try:
         if SMTP_SECURE == "ssl" or SMTP_PORT == 465:
