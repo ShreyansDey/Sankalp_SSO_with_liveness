@@ -110,33 +110,6 @@ export default function Login() {
     }
   };
 
-  const fillDevUser = (type) => {
-    if (!import.meta.env.DEV) return;
-    if (type === "admin") {
-      setEmail(import.meta.env.VITE_DEV_ADMIN_EMAIL || "admin@jadavpur.edu");
-      setPassword(import.meta.env.VITE_DEV_ADMIN_PASSWORD || "shaan123");
-    } else {
-      setEmail(import.meta.env.VITE_DEV_MEMBER_EMAIL || "rahul@club.edu");
-      setPassword(import.meta.env.VITE_DEV_MEMBER_PASSWORD || "shaan123");
-    }
-    setError(null);
-  };
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    const handleKeyDown = (e) => {
-      if (e.altKey && (e.key === "a" || e.key === "A")) {
-        e.preventDefault();
-        fillDevUser("admin");
-      } else if (e.altKey && (e.key === "m" || e.key === "M")) {
-        e.preventDefault();
-        fillDevUser("member");
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
   if (checkingSession) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F3EFE7" }}>
@@ -404,57 +377,6 @@ export default function Login() {
               </Link>
             </div>
           </form>
-
-          {/* Development Quick Fill (Only rendered in local development) */}
-          {import.meta.env.DEV && (
-            <div style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingTop: "8px",
-              borderTop: "1px dashed #DDD6C7",
-              fontSize: "11.5px",
-              color: "#5A6270"
-            }}>
-              <span>Dev Auto-Fill:</span>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button
-                  type="button"
-                  onClick={() => fillDevUser("admin")}
-                  title="Keyboard shortcut: Alt+A"
-                  style={{
-                    background: "#EBE5D8",
-                    border: "1px solid #C4BCAF",
-                    borderRadius: "5px",
-                    padding: "3px 8px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "#12171E",
-                    cursor: "pointer"
-                  }}
-                >
-                  Admin (Alt+A)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDevUser("member")}
-                  title="Keyboard shortcut: Alt+M"
-                  style={{
-                    background: "#EBE5D8",
-                    border: "1px solid #C4BCAF",
-                    borderRadius: "5px",
-                    padding: "3px 8px",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: "#12171E",
-                    cursor: "pointer"
-                  }}
-                >
-                  Member (Alt+M)
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         <div style={{ fontSize: "11.5px", color: "#5A6270", textAlign: "center" }}>
