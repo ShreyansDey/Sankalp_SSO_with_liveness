@@ -21,7 +21,7 @@ import { apiRequest, API_BASE } from "../api";
  * ==============================================================================
  */
 
-const STEP_TIME_LIMIT = 12; // 12 seconds per challenge step
+const STEP_TIME_LIMIT = 15; // 15 seconds per challenge step
 
 export default function Liveness() {
   const [searchParams] = useSearchParams();
@@ -288,16 +288,17 @@ export default function Liveness() {
     };
   }, []);
 
-  // 4. Per-step timer countdown (12s limit per step)
+  // 4. Per-step timer countdown (15s limit per step)
   useEffect(() => {
     let timer;
     if (status === "waiting_action" && stepTimeLeft > 0) {
       timer = setInterval(() => {
         setStepTimeLeft((prev) => {
           if (prev <= 1) {
-            // Grace window if user is actively in the middle of blinking on step 3
-            if (stepRef.current === 3 && blinkStateRef.current.count >= 1 && blinkStateRef.current.count < 2) {
-              return 3;
+            // If submission is in progress or user has already blinked once on step 3, grant grace time
+            if (isSubmittingRef.current) return 0;
+            if (stepRef.current === 3 && blinkStateRef.current.count >= 1) {
+              return 4;
             }
             submitResult(false, `Timeout on step ${stepRef.current}`);
             return 0;
@@ -320,6 +321,10 @@ export default function Liveness() {
     // A verified pass always takes precedence over a pending timer timeout
     if (isSubmittingRef.current && !passed) return;
     isSubmittingRef.current = true;
+
+    if (passed) {
+      setStatus("submitting");
+    }
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -366,7 +371,8 @@ export default function Liveness() {
     } catch (err) {
       console.error("Submit result error:", err);
       setStatus("completed_fail");
-      setErrorMsg(err.message || "Failed to record liveness result");
+      const errDetail = err?.detail?.message || (typeof err?.detail === "string" ? err.detail : null) || err?.message || "Failed to record liveness result";
+      setErrorMsg(errDetail);
     }
   };
 
@@ -410,43 +416,11 @@ export default function Liveness() {
     let cancelled = false;
     let localFaceMesh = null;
 
-    const faceMesh = new window.FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    });
-
-    faceMesh.setOptions({
-      maxNumFaces: 2,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-
-    faceMesh.onResults(onFaceMeshResults);
-    faceMeshRef.current = faceMesh;
-
-    let isProcessing = false;
-
-    async function sendFrame() {
-      if (
-        videoRef.current &&
-        videoRef.current.readyState >= 2 &&
-        !isProcessing &&
-        status === "waiting_action" &&
-        !isSubmittingRef.current
-      ) {
-        const now = performance.now();
-        // Throttle to 30 FPS (every 33ms) to prevent CPU/WebGL starvation & frame jitter
-        if (now - lastFrameTimeRef.current >= 33) {
-          lastFrameTimeRef.current = now;
-          isProcessing = true;
-          try {
-            await faceMesh.send({ image: videoRef.current });
-          } catch (e) {
-            // Frame dropped
-          } finally {
-            isProcessing = false;
-          }
-        }
+    function initFaceMesh() {
+      if (cancelled) return;
+      if (!window.FaceMesh) {
+        const timer = setTimeout(initFaceMesh, 150);
+        return () => clearTimeout(timer);
       }
 
       try {
@@ -479,13 +453,18 @@ export default function Liveness() {
             status === "waiting_action" &&
             !isSubmittingRef.current
           ) {
-            isProcessing = true;
-            try {
-              await localFaceMesh.send({ image: videoRef.current });
-            } catch (e) {
-              // Frame dropped
-            } finally {
-              isProcessing = false;
+            const now = performance.now();
+            // Throttle to 30 FPS (every 33ms) to prevent CPU/WebGL starvation & frame jitter
+            if (now - lastFrameTimeRef.current >= 33) {
+              lastFrameTimeRef.current = now;
+              isProcessing = true;
+              try {
+                await localFaceMesh.send({ image: videoRef.current });
+              } catch (e) {
+                // Frame dropped
+              } finally {
+                isProcessing = false;
+              }
             }
           }
           if (!cancelled && status === "waiting_action" && !isSubmittingRef.current) {
@@ -569,7 +548,7 @@ export default function Liveness() {
     }
 
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-      updateWarning("No face detected. Please face the camera.");
+      updateWarning("No face detected. Keep face inside the oval and turn only slightly (~20°).");
       return;
     }
 
@@ -1194,6 +1173,28 @@ export default function Liveness() {
                   }}>
                     Anti-Jitter Filter Active
                   </span>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW: SUBMITTING / VERIFYING */}
+            {status === "submitting" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px", alignItems: "center", justifyContent: "center", minHeight: "260px", textAlign: "center" }}>
+                <div style={{
+                  width: "48px",
+                  height: "48px",
+                  borderRadius: "50%",
+                  border: "4px solid #DDD6C7",
+                  borderTopColor: "#B8651A",
+                  animation: "spin 1s linear infinite"
+                }} />
+                <div>
+                  <h2 style={{ margin: "0 0 8px 0", fontFamily: "'Newsreader', Georgia, serif", fontSize: "28px", color: "#12171E" }}>
+                    Verifying human presence...
+                  </h2>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#5A6270" }}>
+                    Validating physical challenge & authenticating session
+                  </p>
                 </div>
               </div>
             )}
