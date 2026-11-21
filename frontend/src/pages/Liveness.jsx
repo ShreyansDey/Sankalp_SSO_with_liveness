@@ -21,7 +21,7 @@ import { apiRequest, API_BASE } from "../api";
  * ==============================================================================
  */
 
-const STEP_TIME_LIMIT = 7; // 7 seconds per challenge step
+const STEP_TIME_LIMIT = 12; // 12 seconds per challenge step
 
 export default function Liveness() {
   const [searchParams] = useSearchParams();
@@ -34,6 +34,7 @@ export default function Liveness() {
   const state = searchParams.get("state") || "";
 
   const [challenge, setChallenge] = useState(null);
+  const challengeRef = useRef(null);
 
   // 3-step sequence: 1 -> 2 -> 3
   const [currentStep, setCurrentStep] = useState(1);
@@ -156,6 +157,7 @@ export default function Liveness() {
         body: JSON.stringify({ user_id: userId }),
       });
 
+      challengeRef.current = data;
       setChallenge(data);
       setStatus("waiting_action");
     } catch (err) {
@@ -286,13 +288,17 @@ export default function Liveness() {
     };
   }, []);
 
-  // 4. Per-step timer countdown (7s limit per step)
+  // 4. Per-step timer countdown (12s limit per step)
   useEffect(() => {
     let timer;
     if (status === "waiting_action" && stepTimeLeft > 0) {
       timer = setInterval(() => {
         setStepTimeLeft((prev) => {
           if (prev <= 1) {
+            // Grace window if user is actively in the middle of blinking on step 3
+            if (stepRef.current === 3 && blinkStateRef.current.count >= 1 && blinkStateRef.current.count < 2) {
+              return 3;
+            }
             submitResult(false, `Timeout on step ${stepRef.current}`);
             return 0;
           }
@@ -305,7 +311,14 @@ export default function Liveness() {
 
   // 5. Submit final challenge result to backend
   const submitResult = async (passed, failReason = null, liveFrameData = null) => {
-    if (isSubmittingRef.current) return;
+    const ch = challengeRef.current || challenge;
+    if (!ch) {
+      console.warn("Cannot submit result: challenge is null");
+      return;
+    }
+
+    // A verified pass always takes precedence over a pending timer timeout
+    if (isSubmittingRef.current && !passed) return;
     isSubmittingRef.current = true;
 
     if (animationFrameRef.current) {
@@ -329,28 +342,26 @@ export default function Liveness() {
     }
 
     try {
-      if (challenge) {
-        const res = await apiRequest("/liveness/result", {
-          method: "POST",
-          body: JSON.stringify({
-            challenge_id: challenge.challenge_id,
-            code: challenge.code,
-            passed: passed,
-            fail_reason: failReason,
-            live_frame: frameToSubmit
-          }),
-        });
+      const res = await apiRequest("/liveness/result", {
+        method: "POST",
+        body: JSON.stringify({
+          challenge_id: ch.challenge_id,
+          code: ch.code,
+          passed: passed,
+          fail_reason: failReason,
+          live_frame: frameToSubmit
+        }),
+      });
 
-        if (res.passed) {
-          setStatus("completed_pass");
-          if (res.user) {
-            setVerifiedUser(res.user);
-            setFaceVerifiedNotice(`Presence confirmed & live face matched to ${res.user.name || res.user.email}`);
-          }
-        } else {
-          setStatus("completed_fail");
-          setErrorMsg(res.message || failReason || "Verification failed");
+      if (res.passed) {
+        setStatus("completed_pass");
+        if (res.user) {
+          setVerifiedUser(res.user);
+          setFaceVerifiedNotice(`Presence confirmed & live face matched to ${res.user.name || res.user.email}`);
         }
+      } else {
+        setStatus("completed_fail");
+        setErrorMsg(res.message || failReason || "Verification failed");
       }
     } catch (err) {
       console.error("Submit result error:", err);
@@ -580,7 +591,8 @@ export default function Liveness() {
 
     // STEP 1: Head Turn (Direction dictated by server challenge, requires 3 consecutive frames)
     if (activeStep === 1) {
-      const targetTurn = challenge?.type === "turn_right" ? "turn_right" : "turn_left";
+      const ch = challengeRef.current || challenge;
+      const targetTurn = ch?.type === "turn_right" ? "turn_right" : "turn_left";
       const isTurned = targetTurn === "turn_left" ? yawRatio > 0.63 : yawRatio < 0.37;
 
       if (isTurned) {
@@ -696,7 +708,8 @@ export default function Liveness() {
 
   const getStepHeadline = () => {
     if (currentStep === 1) {
-      const dir = challenge?.type === "turn_left" ? "left" : "right";
+      const ch = challengeRef.current || challenge;
+      const dir = ch?.type === "turn_left" ? "left" : "right";
       return `Turn head ${dir}`;
     } else if (currentStep === 2) {
       return "Return to center";
