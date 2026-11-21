@@ -329,7 +329,7 @@ export default function Clubs() {
               }}
             >
               <div style={{
-                height: "140px",
+                height: "190px",
                 position: "relative",
                 overflow: "hidden"
               }}>
@@ -339,7 +339,8 @@ export default function Clubs() {
                   style={{
                     width: "100%",
                     height: "100%",
-                    objectFit: "cover"
+                    objectFit: "cover",
+                    objectPosition: club.id === "app-a" ? "center 25%" : (club.id === "app-e" ? "center 45%" : "center")
                   }}
                 />
               </div>
@@ -392,7 +393,7 @@ export default function Clubs() {
             overflow: "hidden"
           }}>
             <div style={{
-              height: "140px",
+              height: "190px",
               position: "relative",
               overflow: "hidden"
             }}>
@@ -403,6 +404,7 @@ export default function Clubs() {
                   width: "100%",
                   height: "100%",
                   objectFit: "cover",
+                  objectPosition: "center 30%",
                   filter: "brightness(0.92)"
                 }}
               />
