@@ -359,6 +359,9 @@ export default function Liveness() {
       });
 
       if (res.passed) {
+        if (res.session_id) {
+          localStorage.setItem("sso_session_id", res.session_id);
+        }
         setStatus("completed_pass");
         if (res.user) {
           setVerifiedUser(res.user);

@@ -10,8 +10,15 @@ def get_current_session(
     request: Request,
     db: Session = Depends(get_db)
 ) -> Optional[SsoSession]:
-    """Retrieve active SSO session from the sso_session cookie."""
+    """Retrieve active SSO session from the sso_session cookie or Bearer token header."""
     session_id = request.cookies.get("sso_session")
+    if not session_id:
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_id = auth_header.split(" ", 1)[1].strip()
+        elif request.headers.get("X-Session-ID"):
+            session_id = request.headers.get("X-Session-ID").strip()
+
     if not session_id:
         return None
 

@@ -26,8 +26,12 @@ export const API_BASE =
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("sso_session_id") : null;
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
   const defaultHeaders = {
     "Content-Type": "application/json",
+    ...authHeaders,
   };
 
   const response = await fetch(url, {

@@ -566,30 +566,23 @@ def logout(
 @router.get("/me")
 def get_me(
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_obj: Optional[SsoSession] = Depends(get_current_session)
 ):
     """Retrieve current logged in user details and status."""
-    # Check session cookie first
-    session_id = request.cookies.get("sso_session")
-    if session_id:
-        session_obj = db.query(SsoSession).filter(
-            SsoSession.id == session_id,
-            SsoSession.revoked_at.is_(None),
-            SsoSession.expires_at > datetime.utcnow()
-        ).first()
-        if session_obj:
-            user = db.query(User).filter(User.id == session_obj.user_id).first()
-            if user:
-                return {
-                    "id": user.id,
-                    "name": user.name,
-                    "email": user.email,
-                    "role": user.role,
-                    "status": user.status,
-                    "term_end": str(user.term_end) if user.term_end else None,
-                    "last_active_at": user.last_active_at.isoformat() if user.last_active_at else None,
-                    "liveness_passed_at": user.liveness_passed_at.isoformat() if user.liveness_passed_at else None
-                }
+    if session_obj:
+        user = db.query(User).filter(User.id == session_obj.user_id).first()
+        if user:
+            return {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "role": user.role,
+                "status": user.status,
+                "term_end": str(user.term_end) if user.term_end else None,
+                "last_active_at": user.last_active_at.isoformat() if user.last_active_at else None,
+                "liveness_passed_at": user.liveness_passed_at.isoformat() if user.liveness_passed_at else None
+            }
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

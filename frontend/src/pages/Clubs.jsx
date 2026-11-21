@@ -61,6 +61,9 @@ export default function Clubs() {
     } catch (e) {
       // Ignore
     }
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("sso_session_id");
+    }
     navigate("/signed-out", {
       replace: true,
       state: {

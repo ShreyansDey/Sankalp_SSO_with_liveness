@@ -27,6 +27,9 @@ export function AuthProvider({ children }) {
     } catch (e) {
       console.warn("Logout error:", e);
     } finally {
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("sso_session_id");
+      }
       setUser(null);
       window.location.href = "/login";
     }

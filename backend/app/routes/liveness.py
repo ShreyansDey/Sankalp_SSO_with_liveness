@@ -312,13 +312,14 @@ def submit_result(
     except Exception:
         pass
 
-    # Set HttpOnly session cookie
+    # Set HttpOnly session cookie (only use Secure flag if connection is actually HTTPS to avoid browser rejecting on HTTP)
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
         key="sso_session",
         value=sso_sess.id,
         httponly=True,
         samesite="lax",
-        secure=IS_PRODUCTION,
+        secure=is_https,
         max_age=SSO_SESSION_HOURS * 3600,
         path="/"
     )
