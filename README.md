@@ -148,7 +148,7 @@ User Browser              App A (Client)             Auth Server (SSO)          
 - **Threat Mitigated**: Unauthorized downgrade of security policies by an adversary with access to an active admin workstation.
 - **Protocol**: Disabling the Biometric Face Lock triggers an out-of-band security challenge:
   - Generates a cryptographically random 6-digit OTP via Python's `secrets` module.
-  - Dispatches an RFC 2387 multipart HTML notification to the administrator's verified email (`teamsankalp60@gmail.com`).
+  - Dispatches an RFC 2387 multipart HTML notification to the administrator's verified email.
   - Enforces a 5-minute single-use expiration stored in an encrypted in-memory vault.
   - Requires OTP validation before updating the policy in PostgreSQL. Direct API calls attempting to toggle `enforce: false` without OTP verification are rejected with `HTTP 400 2fa_required`.
 
@@ -301,16 +301,16 @@ Sankalp SSO protects five distinct institutional portals, each implementing OAut
    ```
 
 2. **Configure Environment Variables**:
-   In `backend/.env`:
+   In `backend/.env` (or copy from `backend/.env.example`):
    ```ini
-   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sankalp_sso
-   SECRET_KEY=your_cryptographic_secret_key_minimum_32_chars
+   DATABASE_URL=postgresql://postgres:your_password@localhost:5432/sankalp_sso
+   SECRET_KEY=generate_a_secure_random_key_min_32_chars
    SMTP_HOST=smtp.gmail.com
    SMTP_PORT=587
-   SMTP_USER=teamsankalp60@gmail.com
-   SMTP_PASS=ppbwmaohigdwqlwm
+   SMTP_USER=your_email@gmail.com
+   SMTP_PASS=your_16_char_app_password
    SMTP_SECURE=tls
-   EMAIL_FROM=teamsankalp60@gmail.com
+   EMAIL_FROM=your_email@gmail.com
    EMAIL_FROM_NAME="Real Access (Sankalp SSO)"
    FRONTEND_ORIGIN=http://localhost:5180
    PURGE_GRACE_HOURS=48
