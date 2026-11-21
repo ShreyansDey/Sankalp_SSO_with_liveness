@@ -547,7 +547,7 @@ export default function Liveness() {
               setBlinkCount(blinkStateRef.current.count);
               setBlinkDetected(true);
 
-              if (blinkStateRef.current.count >= 1) {
+              if (blinkStateRef.current.count >= 2) {
                 setStep3Passed(true);
 
                 // Capture high-fidelity frame at the exact moment eyes are fully reopened
@@ -877,16 +877,26 @@ export default function Liveness() {
                     borderRadius: "10px"
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>Status:</span>
+                      <span style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>Blinks:</span>
                       <span style={{
-                        padding: "2px 10px",
+                        padding: "2px 8px",
                         borderRadius: "999px",
                         fontSize: "12px",
                         fontWeight: 600,
                         background: blinkCount >= 1 ? "#1F6B3F" : "#DDD6C7",
                         color: blinkCount >= 1 ? "#FFFFFF" : "#5A6270"
                       }}>
-                        {blinkCount >= 1 ? "✓ Blink Detected & Verified" : "○ Blink when ready"}
+                        {blinkCount >= 1 ? "✓ 1st Blink" : "○ 1st Blink"}
+                      </span>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "999px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: blinkCount >= 2 ? "#1F6B3F" : "#DDD6C7",
+                        color: blinkCount >= 2 ? "#FFFFFF" : "#5A6270"
+                      }}>
+                        {blinkCount >= 2 ? "✓ 2nd Blink" : "○ 2nd Blink"}
                       </span>
                     </div>
                     <div style={{ fontSize: "11px", color: isEyeClosed ? "#8A4A0F" : "#5A6270", fontWeight: 600 }}>
