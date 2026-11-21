@@ -9,14 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Invite, Product, SsoSession, RefreshToken, AuditLog
+from app.models import User, Invite, Product, SsoSession, RefreshToken, AuditLog, RenewalRequest
 from app.security import (
     hash_token,
     generate_random_token,
     hash_password
 )
 from app.audit import log_audit
-from app.config import FRONTEND_ORIGIN
+from app.config import FRONTEND_ORIGIN, PURGE_GRACE_HOURS
 from app.deps import require_admin_user
 from app.jobs.cleanup import run_cleanup_job
 from app.services.face_engine import extract_face_embedding
@@ -24,7 +24,10 @@ from app.services.email_service import (
     send_invite_email,
     send_application_approved_email,
     send_application_rejected_email,
-    send_marked_as_left_email
+    send_marked_as_left_email,
+    send_mark_as_left_email,
+    send_renewal_status_email,
+    send_final_purge_takeout_email
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -193,9 +196,16 @@ def mark_user_left(
     # Dispatch status update email to student
     send_marked_as_left_email(to_email=user.email, name=user.name, background=True)
 
+    # Send 48-hour recovery/purge notice email with renew link
+    renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
+    try:
+        send_mark_as_left_email(user.email, user.name, renew_url)
+    except Exception:
+        pass
+
     return {
         "status": "ok",
-        "message": f"User {user.email} marked as left. All active sessions and tokens revoked."
+        "message": f"User {user.email} marked as left. All active sessions and tokens revoked. 48-hour purge window initialized."
     }
 
 @router.post("/users/{user_id}/disable")
@@ -337,6 +347,20 @@ def delete_approve(
 
     user.status = "deleted"
     db.commit()
+
+    # Prepare personal data export takeout prior to deletion and dispatch notice
+    user_data = {
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "created_at": user.created_at,
+        "disabled_at": user.disabled_at,
+        "disabled_reason": user.disabled_reason or "admin_deleted",
+    }
+    try:
+        send_final_purge_takeout_email(user.email, user_data, background=True)
+    except Exception:
+        pass
 
     log_audit(
         db,
@@ -648,3 +672,151 @@ def get_applicant_document(
         media_type = "image/png"
 
     return FileResponse(user.document_path, media_type=media_type)
+
+# ==============================================================================
+# 48-Hour Accidental Revocation & Expiration Renewal Desk
+# ==============================================================================
+
+class RenewalActionRequest(BaseModel):
+    notes: Optional[str] = None
+
+@router.get("/renewals")
+def list_renewal_requests(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    List all membership renewal requests with dynamic 48-hour purge countdown timers.
+    """
+    requests = db.query(RenewalRequest).order_by(RenewalRequest.created_at.desc()).all()
+    now = datetime.utcnow()
+    results = []
+    for r in requests:
+        user = db.query(User).filter(User.id == r.user_id).first()
+        hours_left = 0.0
+        if user and user.disabled_at:
+            elapsed = (now - user.disabled_at).total_seconds() / 3600.0
+            hours_left = max(0.0, round(PURGE_GRACE_HOURS - elapsed, 1))
+
+        results.append({
+            "id": r.id,
+            "user_id": r.user_id,
+            "email": r.email,
+            "name": r.name,
+            "reason": r.reason,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+            "admin_notes": r.admin_notes,
+            "user_status": user.status if user else "purged",
+            "disabled_at": user.disabled_at.isoformat() if user and user.disabled_at else None,
+            "disabled_reason": user.disabled_reason if user else None,
+            "hours_left": hours_left
+        })
+    return results
+
+@router.post("/renewals/{request_id}/approve")
+def approve_renewal_request(
+    request_id: str,
+    payload: Optional[RenewalActionRequest] = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    Approve a renewal request: Reactivate user account and cancel 48h purge countdown.
+    Sends confirmation email to user.
+    """
+    req = db.query(RenewalRequest).filter(RenewalRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Renewal request not found"}
+        )
+
+    user = db.query(User).filter(User.id == req.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "user_purged", "message": "User has already been purged from database"}
+        )
+
+    now = datetime.utcnow()
+    req.status = "approved"
+    req.resolved_at = now
+    req.resolved_by = admin.id
+    if payload and payload.notes:
+        req.admin_notes = payload.notes
+
+    # Reactivate user account
+    user.status = "active"
+    user.disabled_at = None
+    user.disabled_reason = None
+    user.last_active_at = now
+    db.commit()
+
+    log_audit(
+        db,
+        action="renewal_approved",
+        actor_id=admin.id,
+        target_id=user.id,
+        detail={"email": user.email, "request_id": req.id}
+    )
+
+    try:
+        send_renewal_status_email(user.email, user.name, "approved", req.admin_notes)
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "message": f"Renewal approved for {user.name} ({user.email}). Account access is restored.",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "status": user.status
+        }
+    }
+
+@router.post("/renewals/{request_id}/decline")
+def decline_renewal_request(
+    request_id: str,
+    payload: Optional[RenewalActionRequest] = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin_user)
+):
+    """
+    Decline a renewal request: Marks request as declined and informs user via email.
+    """
+    req = db.query(RenewalRequest).filter(RenewalRequest.id == request_id).first()
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "not_found", "message": "Renewal request not found"}
+        )
+
+    now = datetime.utcnow()
+    req.status = "declined"
+    req.resolved_at = now
+    req.resolved_by = admin.id
+    if payload and payload.notes:
+        req.admin_notes = payload.notes
+    db.commit()
+
+    user = db.query(User).filter(User.id == req.user_id).first()
+    if user:
+        log_audit(
+            db,
+            action="renewal_declined",
+            actor_id=admin.id,
+            target_id=user.id,
+            detail={"email": user.email, "request_id": req.id}
+        )
+        try:
+            send_renewal_status_email(user.email, user.name, "declined", req.admin_notes)
+        except Exception:
+            pass
+
+    return {
+        "status": "ok",
+        "message": f"Renewal request for {req.email} has been declined."
+    }

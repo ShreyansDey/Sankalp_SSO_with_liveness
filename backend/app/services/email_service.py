@@ -595,3 +595,391 @@ University Administration & Team Sankalp"""
     }
     html, assets = render_email_template("access_ended.html", ctx)
     return _dispatch_in_background(to_email, subject, text_content, html, assets) if background else send_email(to_email, subject, text_content, html, assets)
+
+
+def build_mark_as_left_email(name: str, renew_url: str) -> tuple[str, str]:
+    """Generate email templates when user is marked as left by admin (48h purge notice)."""
+    greeting_name = name.strip() if name and name.strip() else "Member"
+
+    text_content = f"""Hello {greeting_name},
+
+Notice: An administrator has revoked your access permissions across all campus club applications (Mark as Left).
+
+48-HOUR RENEWAL & PURGE NOTICE:
+If this revocation was done accidentally, you may apply to renew and restore your access within 48 hours by visiting:
+{renew_url}
+
+IMPORTANT:
+If no renewal is requested and approved within 48 hours, all your credential data and account records will be COMPLETELY PURGED from the entire database. Once purged, you will be required to register again from scratch.
+
+PLEASE NOTE:
+If the decision to revoke your access was intentional, or you have already applied for renewal, please ignore this email.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Access Revoked — 48-Hour Purge Notice</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAF7; margin: 0; padding: 24px; color: #1C1917;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E7E5E4; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 24px 32px; background-color: #0F172A; color: #FFFFFF;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;">Sankalp SSO &bull; Real Access</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #94A3B8;">Security Notification &bull; Access Revoked</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <p style="font-size: 16px; margin: 0 0 16px;">Hello <strong>{greeting_name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #44403C; margin: 0 0 16px;">
+          An administrator has revoked your access permissions across all connected campus applications (status set to <em>Mark as Left</em>).
+        </p>
+
+        <div style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px; padding: 16px; margin: 20px 0;">
+          <h4 style="margin: 0 0 8px; color: #B45309; font-size: 14px;">⏳ 48-Hour Recovery Window Active</h4>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #92400E;">
+            If this revocation was performed <strong>accidentally</strong>, you have a <strong>48-hour grace window</strong> to submit a renewal request to an administrator.
+          </p>
+          <p style="margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #92400E;">
+            If not renewed within 48 hours, <strong>all your credential data and account records will be COMPLETELY PURGED from the entire database</strong>. You would need to re-register from scratch to regain access.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="{renew_url}" style="background-color: #0F172A; color: #FFFFFF; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-block;">
+            Apply for Access Renewal
+          </a>
+        </div>
+
+        <p style="color: #DC2626; font-size: 13px; font-weight: 600; background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 12px; margin: 24px 0 0; line-height: 1.5;">
+          ⚠️ Important Notice: If this decision was intentional or you have already applied for renewal, please ignore this email.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 16px 32px; background-color: #F5F5F4; border-top: 1px solid #E7E5E4; font-size: 12px; color: #78716C; text-align: center;">
+        Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def build_expired_email(name: str, renew_url: str, reason: str = "term_end") -> tuple[str, str]:
+    """Generate email templates when user membership or activity limit expires (48h purge notice)."""
+    greeting_name = name.strip() if name and name.strip() else "Member"
+    reason_label = "membership term has reached its end date" if reason == "term_end" else "account has been inactive for over 60 days"
+
+    text_content = f"""Hello {greeting_name},
+
+Notice: Your access through Sankalp SSO has expired because your {reason_label}.
+
+48-HOUR RENEWAL & PURGE NOTICE:
+To restore or renew your membership, please contact an administrator or submit a renewal application within 48 hours by visiting:
+{renew_url}
+
+IMPORTANT:
+If no renewal is requested and approved within 48 hours, all your credential data and account records will be COMPLETELY PURGED from the entire database.
+
+PLEASE NOTE:
+If this expiration was expected or you have already applied for renewal, please ignore this email.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Activity Limit Expired — 48-Hour Purge Notice</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAF7; margin: 0; padding: 24px; color: #1C1917;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E7E5E4; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 24px 32px; background-color: #0F172A; color: #FFFFFF;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;">Sankalp SSO &bull; Real Access</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #94A3B8;">Security Notification &bull; Access Expired</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <p style="font-size: 16px; margin: 0 0 16px;">Hello <strong>{greeting_name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #44403C; margin: 0 0 16px;">
+          Your access permissions through Sankalp SSO have expired because your <strong>{reason_label}</strong>.
+        </p>
+
+        <div style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px; padding: 16px; margin: 20px 0;">
+          <h4 style="margin: 0 0 8px; color: #B45309; font-size: 14px;">⏳ 48-Hour Renewal Window</h4>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #92400E;">
+            To renew your membership, contact an administrator or apply for renewal within the next <strong>48 hours</strong>.
+          </p>
+          <p style="margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: #92400E;">
+            Otherwise, after 48 hours, <strong>all your credential data and account records will be COMPLETELY PURGED from the entire database</strong>.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="{renew_url}" style="background-color: #0F172A; color: #FFFFFF; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-block;">
+            Apply for Membership Renewal
+          </a>
+        </div>
+
+        <p style="color: #DC2626; font-size: 13px; font-weight: 600; background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 12px; margin: 24px 0 0; line-height: 1.5;">
+          ⚠️ Important Notice: If this expiration was expected or you have already applied for renewal, please ignore this email.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 16px 32px; background-color: #F5F5F4; border-top: 1px solid #E7E5E4; font-size: 12px; color: #78716C; text-align: center;">
+        Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def build_renewal_status_email(name: str, status: str, admin_notes: Optional[str] = None) -> tuple[str, str]:
+    """Generate email templates when admin approves or declines a renewal request."""
+    greeting_name = name.strip() if name and name.strip() else "Member"
+    is_approved = (status.lower() == "approved")
+
+    if is_approved:
+        subject_line = "✅ Access Restored — Your Renewal Request was Approved"
+        headline = "Renewal Request Approved!"
+        header_color = "#047857"  # Green
+        body_text = "Good news! An administrator has reviewed and approved your access renewal request. Your account has been reactivated, and you can now log in normally to all connected campus club facilities."
+    else:
+        subject_line = "❌ Update: Your Access Renewal Request was Declined"
+        headline = "Renewal Request Declined"
+        header_color = "#B91C1C"  # Red
+        body_text = "Your request for access renewal has been reviewed and declined by an administrator. In accordance with data privacy lifecycle regulations, your account records are scheduled for permanent purge."
+
+    notes_section_txt = f"\nAdministrator Notes: {admin_notes}\n" if admin_notes else ""
+    notes_section_html = f"""<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 12px; margin: 16px 0;"><strong>Administrator Notes:</strong> {admin_notes}</div>""" if admin_notes else ""
+
+    text_content = f"""Hello {greeting_name},
+
+{subject_line}
+
+{body_text}
+{notes_section_txt}
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{subject_line}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAF7; margin: 0; padding: 24px; color: #1C1917;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E7E5E4; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 24px 32px; background-color: {header_color}; color: #FFFFFF;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600;">{headline}</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: rgba(255, 255, 255, 0.85);">Sankalp SSO &bull; Real Access</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <p style="font-size: 16px; margin: 0 0 16px;">Hello <strong>{greeting_name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #44403C; margin: 0 0 16px;">
+          {body_text}
+        </p>
+        {notes_section_html}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 16px 32px; background-color: #F5F5F4; border-top: 1px solid #E7E5E4; font-size: 12px; color: #78716C; text-align: center;">
+        Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def send_mark_as_left_email(
+    to_email: str,
+    name: str,
+    renew_url: str,
+    background: bool = True
+) -> bool:
+    """Dispatches 48-hour recovery notice when admin marks user as left."""
+    subject = "⚠️ Notice: Access Revoked by Administrator — 48-Hour Purge Window"
+    text_content, html_content = build_mark_as_left_email(name, renew_url)
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched mark_as_left notice email to %s", to_email)
+        return True
+    return send_email(to_email, subject, text_content, html_content)
+
+
+def send_expired_email(
+    to_email: str,
+    name: str,
+    renew_url: str,
+    reason: str = "term_end",
+    background: bool = True
+) -> bool:
+    """Dispatches 48-hour recovery notice when user access expires automatically."""
+    subject = "⚠️ Notice: Activity Limit / Membership Expired — 48-Hour Purge Window"
+    text_content, html_content = build_expired_email(name, renew_url, reason)
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched expiration notice email to %s (reason: %s)", to_email, reason)
+        return True
+    return send_email(to_email, subject, text_content, html_content)
+
+
+def send_renewal_status_email(
+    to_email: str,
+    name: str,
+    status: str,
+    admin_notes: Optional[str] = None,
+    background: bool = True
+) -> bool:
+    """Dispatches approval or decline notice for a renewal request."""
+    subject = "✅ Your Access Renewal Request has been Approved!" if status.lower() == "approved" else "❌ Update: Your Access Renewal Request was Declined"
+    text_content, html_content = build_renewal_status_email(name, status, admin_notes)
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched renewal %s notice email to %s", status, to_email)
+        return True
+    return send_email(to_email, subject, text_content, html_content)
+
+
+def build_final_purge_takeout_email(user_data: dict) -> tuple[str, str]:
+    """
+    Generate final data takeout export & farewell email templates dispatched at the exact moment
+    an account is permanently hard-purged from the database after the 48-hour period.
+    """
+    name = (user_data.get("name") or "Member").strip()
+    email = user_data.get("email") or "N/A"
+    phone = user_data.get("phone") or "Not provided"
+    created_at = user_data.get("created_at")
+    disabled_at = user_data.get("disabled_at")
+    reason = user_data.get("disabled_reason") or "left"
+
+    created_str = created_at.strftime("%Y-%m-%d %H:%M UTC") if hasattr(created_at, "strftime") else str(created_at or "N/A")
+    disabled_str = disabled_at.strftime("%Y-%m-%d %H:%M UTC") if hasattr(disabled_at, "strftime") else str(disabled_at or "N/A")
+
+    reason_desc = "Administrative Revocation (Mark as Left)" if reason == "left" else \
+                  "Membership Term Expiration" if reason == "term_end" else \
+                  "60-Day Account Inactivity" if reason == "inactive" else reason
+
+    text_content = f"""Hello {name},
+
+FINAL DATA TAKEOUT & COMPLETE DATABASE PURGE NOTICE:
+Your 48-hour recovery window has completed. In accordance with our digital privacy and data retention policy, all your credential records, authentication profiles, and identity templates have been PERMANENTLY AND COMPLETELY PURGED from the entire database and storage vault. No frozen records remain.
+
+SUMMARY OF RECORDED DATA (EXPORTED PRIOR TO PURGE):
+--------------------------------------------------
+• Full Name: {name}
+• Registered Email: {email}
+• Contact Phone: {phone}
+• Account Enrolled On: {created_str}
+• Deactivation Date: {disabled_str}
+• Deactivation Reason: {reason_desc}
+• Biometric Data: Raw webcam video was never saved. Your 128-dimensional facial embedding vector has been permanently destroyed.
+• Supporting Identification: Uploaded student ID document files on disk have been completely erased.
+--------------------------------------------------
+
+RE-ENTRY INSTRUCTIONS:
+Because all your records have been completely and permanently erased from the system, you cannot restore this account. If you wish to rejoin or access campus club facilities in the future, you must submit a new registration with complete data and complete the e-KYC verification process again from scratch.
+
+Thank you for your time with our organization.
+
+— Team Sankalp (Real Person, Real Access SSO)
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Final Data Takeout & Complete Database Purge Notice</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #FAFAF7; margin: 0; padding: 24px; color: #1C1917;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 620px; margin: 0 auto; background-color: #FFFFFF; border: 1px solid #E7E5E4; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 24px 32px; background-color: #0F172A; color: #FFFFFF;">
+        <h2 style="margin: 0; font-size: 20px; font-weight: 600;">Sankalp SSO &bull; Real Access</h2>
+        <p style="margin: 4px 0 0; font-size: 13px; color: #94A3B8;">Final Data Takeout &bull; Permanent Database Purge Notice</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px;">
+        <p style="font-size: 16px; margin: 0 0 16px;">Hello <strong>{name}</strong>,</p>
+        <p style="font-size: 14px; line-height: 1.6; color: #44403C; margin: 0 0 20px;">
+          Your <strong>48-hour recovery window has concluded</strong>. In accordance with institutional data minimization and privacy standards, <strong>all your credential records, session tokens, and identity templates have been COMPLETELY AND PERMANENTLY PURGED from our database and storage vault</strong>. No frozen records remain in the system.
+        </p>
+
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h4 style="margin: 0 0 12px; font-size: 14px; color: #0F172A; text-transform: uppercase; letter-spacing: 0.5px;">
+            📋 Final Personal Data Export (Takeout)
+          </h4>
+          <table width="100%" style="font-size: 13px; color: #334155; line-height: 1.6;">
+            <tr><td style="padding: 4px 0; font-weight: 600; width: 160px;">Full Name:</td><td>{name}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Institutional Email:</td><td>{email}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Contact Phone:</td><td>{phone}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Account Created:</td><td>{created_str}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Deactivation Date:</td><td>{disabled_str}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Deactivation Reason:</td><td>{reason_desc}</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Biometric Embeddings:</td><td>128D mathematical vector permanently destroyed (zero video ever stored)</td></tr>
+            <tr><td style="padding: 4px 0; font-weight: 600;">Stored Documents:</td><td>All uploaded student ID files permanently erased from disk</td></tr>
+          </table>
+        </div>
+
+        <div style="background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 6px; padding: 16px; margin: 24px 0;">
+          <h4 style="margin: 0 0 6px; color: #DC2626; font-size: 14px;">Re-entering the Organization</h4>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #991B1B;">
+            Because all your data records have been completely purged from the entire system, this account cannot be restored. To rejoin or access connected campus club facilities in the future, you must submit a new registration and complete e-KYC verification again from scratch.
+          </p>
+        </div>
+
+        <p style="font-size: 13px; color: #78716C; margin: 20px 0 0; line-height: 1.5;">
+          Thank you for your participation in campus club programs.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 16px 32px; background-color: #F5F5F4; border-top: 1px solid #E7E5E4; font-size: 12px; color: #78716C; text-align: center;">
+        Real Access &bull; Team Sankalp &bull; Cybersecurity & Digital Identity SSO
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+    return text_content, html_content
+
+
+def send_final_purge_takeout_email(
+    to_email: str,
+    user_data: dict,
+    background: bool = True
+) -> bool:
+    """Dispatches final data export & permanent database purge notification email."""
+    subject = "📦 Your Personal Data Export & Notice of Permanent Database Purge"
+    text_content, html_content = build_final_purge_takeout_email(user_data)
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched final purge takeout email to %s", to_email)
+        return True
+    return send_email(to_email, subject, text_content, html_content)

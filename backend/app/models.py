@@ -36,6 +36,13 @@ class User(Base):
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     liveness_challenges = relationship("LivenessChallenge", back_populates="user", cascade="all, delete-orphan")
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", cascade="all, delete-orphan")
+    renewal_requests = relationship(
+        "RenewalRequest",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        primaryjoin="User.id==RenewalRequest.user_id",
+        foreign_keys="[RenewalRequest.user_id]"
+    )
 
 class Invite(Base):
     __tablename__ = "invites"
@@ -134,3 +141,19 @@ class PasswordResetToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="password_reset_tokens")
+
+class RenewalRequest(Base):
+    __tablename__ = "renewal_requests"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(String(50), default="pending", nullable=False)  # pending, approved, declined
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    admin_notes = Column(Text, nullable=True)
+
+    user = relationship("User", back_populates="renewal_requests", foreign_keys=[user_id])

@@ -371,3 +371,55 @@ If you have never built a web backend, here is how clients (browsers and apps) t
 
 ### 6.8. Inspect Security Audit Log (`GET /admin/audit?limit=50`)
 - **Purpose**: Retrieves newest-first tamper-resistant audit entries for forensic review.
+
+---
+
+## 7. 48-Hour Accidental Revocation & Expiration Renewal Endpoints
+
+### 7.1. Submit Renewal Application (`POST /auth/renew`)
+- **Purpose**: Allows members who were accidentally marked as left or expired to submit an appeal to restore their access within the 48-hour recovery window.
+- **Request Body**:
+  ```json
+  {
+    "email": "rahul@ju.edu",
+    "reason": "Admin marked me as left accidentally during lab roll-call."
+  }
+  ```
+- **Responses**:
+  - `200 OK`: `{"status": "ok", "message": "Renewal application submitted successfully!...", "request_id": "..."}`
+  - `400 Bad Request`: Account not disabled or 48-hour recovery window has expired (`window_expired`).
+  - `404 Not Found`: No account exists with this email address.
+
+---
+
+### 7.2. List Renewal Requests (`GET /admin/renewals`)
+- **Headers**: Admin session cookie required (`require_admin_user`).
+- **Response**: List of renewal requests with dynamic 48-hour purge countdown timer:
+  ```json
+  [
+    {
+      "id": "req-uuid",
+      "user_id": "user-uuid",
+      "email": "rahul@ju.edu",
+      "name": "Rahul Sharma",
+      "reason": "Accidental mark-left",
+      "status": "pending",
+      "disabled_reason": "left",
+      "hours_left": 41.5
+    }
+  ]
+  ```
+
+---
+
+### 7.3. Approve Access Renewal (`POST /admin/renewals/{request_id}/approve`)
+- **Headers**: Admin session cookie required.
+- **Request Body** (Optional): `{"notes": "Verified with student executive."}`
+- **Effect**: Reactivates member account (`status = 'active'`), cancels 48-hour purge countdown, dispatches confirmation email to student, and logs `renewal_approved`.
+
+---
+
+### 7.4. Decline Access Renewal (`POST /admin/renewals/{request_id}/decline`)
+- **Headers**: Admin session cookie required.
+- **Request Body** (Optional): `{"notes": "Term completed; ineligible for reactivation."}`
+- **Effect**: Marks request as `declined`, dispatches decline notice email to student, and logs `renewal_declined`. Member data remains scheduled for permanent purge after 48 hours.

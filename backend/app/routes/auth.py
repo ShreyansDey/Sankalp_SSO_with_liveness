@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
-from app.models import User, Invite, SsoSession, PasswordResetToken
+from app.models import User, Invite, SsoSession, PasswordResetToken, RenewalRequest
 from app.security import (
     hash_password,
     verify_password,
@@ -19,7 +19,7 @@ from app.security import (
     generate_random_token
 )
 from app.audit import log_audit
-from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN
+from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN, PURGE_GRACE_HOURS
 from app.deps import get_current_session, get_current_user_from_session
 from app.services.face_engine import extract_face_embedding
 from app.services.email_service import (
@@ -768,4 +768,87 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     return {
         "status": "ok",
         "message": "Password has been successfully updated. You may now sign in with your new password."
+    }
+
+class SubmitRenewalRequest(BaseModel):
+    email: str
+    reason: str
+
+@router.post("/renew")
+def submit_renewal_request(payload: SubmitRenewalRequest, db: Session = Depends(get_db)):
+    """
+    Apply for membership/access renewal within the 48-hour accidental revocation/expiration window.
+    """
+    clean_email = payload.email.strip().lower()
+    user = db.query(User).filter(User.email == clean_email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "user_not_found", "message": "No account found registered with this email address."}
+        )
+
+    if user.status == "active":
+        return {
+            "status": "ok",
+            "message": "Your account is already active and does not require renewal.",
+            "is_active": True
+        }
+
+    if user.status != "disabled":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_status", "message": f"Account status is '{user.status}' and cannot submit a renewal request."}
+        )
+
+    # Verify 48-hour window
+    if user.disabled_at:
+        elapsed_hours = (datetime.utcnow() - user.disabled_at).total_seconds() / 3600.0
+        if elapsed_hours > PURGE_GRACE_HOURS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "window_expired",
+                    "message": f"The {PURGE_GRACE_HOURS}-hour recovery window has expired. Your account records are scheduled for permanent purge. Please register again."
+                }
+            )
+
+    # Check for existing pending request
+    existing_req = db.query(RenewalRequest).filter(
+        RenewalRequest.user_id == user.id,
+        RenewalRequest.status == "pending"
+    ).first()
+
+    if existing_req:
+        existing_req.reason = payload.reason.strip()
+        existing_req.created_at = datetime.utcnow()
+        db.commit()
+        return {
+            "status": "ok",
+            "message": "Your renewal application has been updated and is awaiting administrator review.",
+            "request_id": existing_req.id
+        }
+
+    req = RenewalRequest(
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        reason=payload.reason.strip(),
+        status="pending"
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    log_audit(
+        db,
+        action="renewal_requested",
+        actor_id=user.id,
+        target_id=req.id,
+        detail={"email": user.email, "reason": payload.reason.strip()}
+    )
+
+    return {
+        "status": "ok",
+        "message": f"Renewal application submitted successfully! An administrator will review your request within the {PURGE_GRACE_HOURS}-hour window.",
+        "request_id": req.id
     }

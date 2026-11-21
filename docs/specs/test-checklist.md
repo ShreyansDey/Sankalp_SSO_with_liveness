@@ -36,16 +36,20 @@
 - [x] **TC-LIVE-08**: Genuine user ($\text{Cosine Sim} \ge 0.40$) passes and receives `sso_session` cookie.
 - [x] **TC-LIVE-09**: Impostor user passing liveness with non-matching face is rejected with `401 face_mismatch`.
 
-### 1.4. Access Revocation & Automated Janitor
+### 1.4. Access Revocation, 48-Hour Recovery Window & Automated Janitor
 - [x] **TC-REV-01**: Admin clicks **"Mark as left"**; user status set to `disabled` and all sessions/tokens revoked.
 - [x] **TC-REV-02**: Refreshing App A or App B immediately renders bright red **ACCESS DENIED** card in $< 0.2$s.
 - [x] **TC-REV-03**: Disabled user attempting login is rejected with `403 account_disabled`.
 - [x] **TC-REV-04**: Manual cleanup trigger (`POST /admin/cleanup/run`) disables accounts past their `term_end` date.
 - [x] **TC-REV-05**: Inactive accounts ($> 60$ days without activity) are automatically disabled.
 - [x] **TC-REV-06**: Deletion safeguard: account deletion is strictly refused before 30 days have elapsed since `disabled_at`.
+- [x] **TC-REV-07**: Revocation & Expiration 48-Hour Email: User receives notification with hyperlinked renewal button and prominent red disregard note.
+- [x] **TC-REV-08**: 48-Hour Renewal Submission (`POST /auth/renew`): Disabled user submits renewal request with reason; listed in Admin Renewals Desk with countdown.
+- [x] **TC-REV-09**: Admin Renewal Resolution: Approving reactivates account and cancels purge; declining logs event and notifies user.
+- [x] **TC-REV-10**: 48-Hour Hard Purge: Janitor permanently erases user records and files after 48 hours without approved renewal (`user_purged_permanently`).
 
 ### 1.5. Security Audit Log & Privacy
-- [x] **TC-AUD-01**: All 20 fixed audit actions are correctly recorded with timestamp and actor ID.
+- [x] **TC-AUD-01**: All 24 fixed audit actions are correctly recorded with timestamp and actor ID.
 - [x] **TC-AUD-02**: Sensitive credentials (`password`, `token`, `secret`, `hash`) are stripped by sanitization filter.
 - [x] **TC-AUD-03**: Database contains unit-normalized 128D mathematical vectors; zero continuous video stored.
 

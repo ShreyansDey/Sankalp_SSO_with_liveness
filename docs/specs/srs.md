@@ -129,22 +129,34 @@ stateDiagram-v2
 
 ---
 
-### FR2: Instant Cross-System Revocation ("Mark as Left")
-- When an administrator disables a user or clicks **"Mark as left"**, the backend must perform an atomic database update:
+### FR2: Instant Cross-System Revocation ("Mark as Left") & 48-Hour Recovery Notice
+- When an administrator disables a user or clicks **"Mark as left"**, the backend performs an atomic database update:
   1. Set `user.status = 'disabled'` and `user.disabled_reason = 'left'`.
   2. Set `sso_sessions.revoked_at = NOW()` for all active sessions belonging to that user.
   3. Set `refresh_tokens.revoked_at = NOW()` for all refresh tokens across all connected products.
-- Any subsequent attempt by connected products to refresh an access token or validate user status must fail immediately with HTTP 403 `account_disabled`.
+  4. Automatically dispatch an email notice to the departing member:
+     - Notice that access has been revoked.
+     - 48-hour recovery window instructions (with hyperlinked CTA button redirecting to `/renew?email=...`).
+     - Clear warning that after 48 hours, all credential data will be completely purged from the entire database.
+     - Prominent red note: *"If this decision was intentional or you have already applied for renewal, please ignore this email."*
+- Any subsequent attempt by connected products to refresh an access token or validate user status fails immediately with HTTP 403 `account_disabled`.
 - **Latency target**: Under 0.2 seconds from admin button click to denied access across all 5 clubs.
 
 ---
 
-### FR3: Account Deletion Safeguard
-- To protect against accidental or malicious immediate data loss, the system strictly forbids deleting an account directly.
-- An account can only be permanently marked `deleted` if:
-  1. The account is currently in `disabled` status.
-  2. At least **30 calendar days** have elapsed since `disabled_at`.
-  3. An administrator explicitly confirms the deletion via `POST /admin/users/{id}/delete-approve`.
+### FR3: 48-Hour Permanent Database Purge, Data Takeout & Renewal Workflow
+- To protect against accidental admin revocations or unexpected term expiries, the system implements a **48-Hour Vault Recovery Window**:
+  1. Members whose status is set to `disabled` (via "Mark as Left", term expiration, or 60-day inactivity) remain frozen in the vault for **exactly 48 hours**. During this period, all sessions and tokens remain revoked, but the record is held to allow recovery.
+  2. The departing member receives an immediate notice with a hyperlinked button to `/renew?email=...` and prominent red text instructing them to ignore the email if intentional or already applied.
+  3. The Admin Dashboard features a dedicated **Renewals Desk** displaying pending recovery appeals with real-time countdown badges (`hours_left`).
+  4. If an administrator approves the renewal (`POST /admin/renewals/{id}/approve`), the account is instantly restored to `active` status, canceling the purge countdown, and an approval email is dispatched.
+  5. If an administrator declines the renewal (`POST /admin/renewals/{id}/decline`), a decline email is sent to the user.
+  6. **Hard Purge Execution (Zero Vault Retention)**:
+     - If **48 hours elapse** without an approved renewal, the background cleanup janitor automatically and permanently **purges all user credential records, session tokens, biometric embeddings, and uploaded student ID files from the entire database** (`user_purged_permanently`). No frozen records remain in the system vault.
+  7. **Automated Personal Data Takeout & Farewell Email**:
+     - At the exact moment of hard purge, the system dispatches a **Final Personal Data Export (Takeout) Email** to the user.
+     - The email contains a formatted table of all recorded user data prior to erasure (Full Name, Registered Email, Contact Phone, Account Creation Date, Deactivation Timestamp, Deactivation Reason, Biometric embedding disposal certification, and Document erasure confirmation).
+     - The email explicitly instructs the user that because their account and credential data have been completely deleted from the database, re-entering or accessing campus club facilities in the future requires submitting a new registration with complete data and undergoing e-KYC verification from scratch.
 
 ---
 

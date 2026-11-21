@@ -9,6 +9,7 @@ import Clubs from "./pages/Clubs";
 import Signout from "./pages/Signout";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import Renew from "./pages/Renew";
 
 /**
  * ==============================================================================
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/clubs" element={<Clubs />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/renew" element={<Renew />} />
         <Route path="/signed-out" element={<Signout />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
