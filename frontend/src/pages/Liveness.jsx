@@ -49,10 +49,10 @@ export default function Liveness() {
   const [blinkDetected, setBlinkDetected] = useState(false);
   const [blinkCount, setBlinkCount] = useState(0);
   const [isEyeClosed, setIsEyeClosed] = useState(false);
-  const [baselineEAR, setBaselineEAR] = useState(0.28);
-  const [currentEAR, setCurrentEAR] = useState(0.28);
   const [faceVerifiedNotice, setFaceVerifiedNotice] = useState("");
   const [warningNotice, setWarningNotice] = useState("");
+  const warningDebounceRef = useRef({ candidateWarning: "", consecutiveFrames: 0, clearFrames: 0, lastWarning: "" });
+  const lastFrameTimeRef = useRef(0);
   const blinkStateRef = useRef({ count: 0, isClosed: false, baseline: 0.28, centeredFrames: 0, closedFrames: 0, openFrames: 0, closeStartTime: 0, lastBlinkTime: 0 });
   const turnStateRef = useRef({ turnFrames: 0 });
 
@@ -341,13 +341,18 @@ export default function Liveness() {
         status === "waiting_action" &&
         !isSubmittingRef.current
       ) {
-        isProcessing = true;
-        try {
-          await faceMesh.send({ image: videoRef.current });
-        } catch (e) {
-          // Frame dropped
-        } finally {
-          isProcessing = false;
+        const now = performance.now();
+        // Throttle to 30 FPS (every 33ms) to prevent CPU/WebGL starvation & frame jitter
+        if (now - lastFrameTimeRef.current >= 33) {
+          lastFrameTimeRef.current = now;
+          isProcessing = true;
+          try {
+            await faceMesh.send({ image: videoRef.current });
+          } catch (e) {
+            // Frame dropped
+          } finally {
+            isProcessing = false;
+          }
         }
       }
       if (status === "waiting_action" && !isSubmittingRef.current) {
@@ -379,24 +384,51 @@ export default function Liveness() {
     if (isSubmittingRef.current) return;
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Debounce helper to prevent rapid state-switching and layout jitter
+    const updateWarning = (newWarning) => {
+      const wd = warningDebounceRef.current;
+      if (newWarning) {
+        wd.clearFrames = 0;
+        if (newWarning === wd.candidateWarning) {
+          wd.consecutiveFrames += 1;
+        } else {
+          wd.candidateWarning = newWarning;
+          wd.consecutiveFrames = 1;
+        }
+        if (wd.consecutiveFrames >= 8 && wd.lastWarning !== newWarning) {
+          wd.lastWarning = newWarning;
+          setWarningNotice(newWarning);
+        }
+      } else {
+        wd.consecutiveFrames = 0;
+        wd.clearFrames += 1;
+        if (wd.clearFrames >= 6 && wd.lastWarning !== "") {
+          wd.lastWarning = "";
+          wd.candidateWarning = "";
+          setWarningNotice("");
+        }
+      }
+    };
 
     // GUARDRAIL 1: Multi-Face Detection (Anti-impostor / background face attack)
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 1) {
-      setWarningNotice("Multiple faces detected. Ensure only one person is in front of the camera.");
+      updateWarning("Multiple faces detected. Ensure only one person is in front of the camera.");
       return;
     }
 
     if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-      setWarningNotice("No face detected. Please face the camera.");
+      updateWarning("No face detected. Please face the camera.");
       return;
     }
 
     const landmarks = results.multiFaceLandmarks[0];
 
-    // GUARDRAIL 2: Face Scale & Bounding Box Check (Rejects tiny passport photos or extreme close-ups)
+    // GUARDRAIL 2: Face Scale & Bounding Box Check (Tolerant: 0.15 to 0.92)
     let minX = 1, maxX = 0, minY = 1, maxY = 0;
     for (let i = 0; i < landmarks.length; i++) {
       const p = landmarks[i];
@@ -408,12 +440,12 @@ export default function Liveness() {
     const faceWidth = maxX - minX;
     const faceHeight = maxY - minY;
 
-    if (faceHeight < 0.28 || faceWidth < 0.20) {
-      setWarningNotice("Face is too far or small. Fit your face inside the guide oval.");
+    if (faceHeight < 0.15 || faceWidth < 0.12) {
+      updateWarning("Face is too far or small. Fit your face inside the guide oval.");
       return;
     }
-    if (faceHeight > 0.85 || faceWidth > 0.80) {
-      setWarningNotice("Face is too close to camera lens. Move back slightly.");
+    if (faceHeight > 0.92 || faceWidth > 0.88) {
+      updateWarning("Face is too close to camera lens. Move back slightly.");
       return;
     }
 
@@ -428,13 +460,13 @@ export default function Liveness() {
     const avgEarZ = (landmarks[234].z + landmarks[454].z) / 2;
     const depthDelta = Math.abs(noseZ - avgEarZ);
 
-    if (stdZ < 0.015 && depthDelta < 0.02) {
-      setWarningNotice("Flat 2D surface detected. Real 3D facial presence required.");
+    if (stdZ < 0.006 && depthDelta < 0.010) {
+      updateWarning("Flat 2D surface detected. Real 3D facial presence required.");
       return;
     }
 
-    // All anti-spoofing pre-checks passed!
-    setWarningNotice("");
+    // All anti-spoofing pre-checks passed cleanly
+    updateWarning("");
 
     // Landmark references
     const nose = landmarks[1];
@@ -465,7 +497,6 @@ export default function Liveness() {
       landmarks[380]
     );
     const ear = (leftEAR + rightEAR) / 2;
-    setCurrentEAR(ear);
 
     const activeStep = stepRef.current;
 
@@ -497,7 +528,6 @@ export default function Liveness() {
         if (ear >= 0.20 && ear <= 0.45) {
           const prev = blinkStateRef.current.baseline || 0.28;
           blinkStateRef.current.baseline = (prev * 0.82) + (ear * 0.18);
-          setBaselineEAR(blinkStateRef.current.baseline);
         }
 
         // Require 5 stable centered frames (~160-200ms)
@@ -578,7 +608,6 @@ export default function Liveness() {
           setIsEyeClosed(false);
           if (ear >= 0.22 && ear <= 0.45) {
             blinkStateRef.current.baseline = (blinkStateRef.current.baseline * 0.96) + (ear * 0.04);
-            setBaselineEAR(blinkStateRef.current.baseline);
           }
         }
       }
@@ -919,27 +948,34 @@ export default function Liveness() {
                   <li>&bull; Take off glasses if they reflect the screen.</li>
                 </ul>
 
-                {/* Warning notice if PAD / Anti-Spoof detects flat photo or multi-face */}
-                {warningNotice && (
-                  <div style={{
-                    padding: "10px 14px",
-                    background: "#FCEEEA",
-                    border: "1px solid #ECC4B8",
-                    borderRadius: "8px",
-                    color: "#9B3A22",
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px"
-                  }}>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flex: "none" }}>
-                      <circle cx="8" cy="8" r="7" stroke="#9B3A22" strokeWidth="1.5" />
-                      <path d="M8 4.5v4M8 11.5h.01" stroke="#9B3A22" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                    <span>{warningNotice}</span>
-                  </div>
-                )}
+                {/* Warning notice if PAD / Anti-Spoof detects flat photo or multi-face (stable height prevents layout jumping) */}
+                <div style={{
+                  minHeight: "44px",
+                  display: "flex",
+                  alignItems: "center"
+                }}>
+                  {warningNotice && (
+                    <div style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      background: "#FCEEEA",
+                      border: "1px solid #ECC4B8",
+                      borderRadius: "8px",
+                      color: "#9B3A22",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px"
+                    }}>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flex: "none" }}>
+                        <circle cx="8" cy="8" r="7" stroke="#9B3A22" strokeWidth="1.5" />
+                        <path d="M8 4.5v4M8 11.5h.01" stroke="#9B3A22" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                      <span>{warningNotice}</span>
+                    </div>
+                  )}
+                </div>
 
                 {/* Active Anti-Spoofing Guardrail Badges */}
                 <div style={{
