@@ -340,7 +340,7 @@ export default function Clubs() {
                     width: "100%",
                     height: "100%",
                     objectFit: "cover",
-                    objectPosition: club.id === "app-a" ? "center 25%" : (club.id === "app-e" ? "center 45%" : "center")
+                    objectPosition: club.id === "app-a" ? "center 25%" : "center"
                   }}
                 />
               </div>
