@@ -59,6 +59,13 @@ export default function Admin() {
   const [requireFaceMatch, setRequireFaceMatch] = useState(false);
   const [loadingFaces, setLoadingFaces] = useState(false);
 
+  // Privileged 2FA Gate for Disabling Biometric Face Lock
+  const [showDisableLockOtpModal, setShowDisableLockOtpModal] = useState(false);
+  const [disableLockOtp, setDisableLockOtp] = useState("");
+  const [disableLockError, setDisableLockError] = useState(null);
+  const [disableLockLoading, setDisableLockLoading] = useState(false);
+  const [disableLockTargetEmail, setDisableLockTargetEmail] = useState("teamsankalp60@gmail.com");
+
   useEffect(() => {
     loadInitialData();
 
@@ -107,6 +114,11 @@ export default function Admin() {
   };
 
   const handleToggleFaceRestriction = async (enforce) => {
+    if (!enforce) {
+      // Disabling Biometric Face Lock strictly requires 2-Step Verification
+      await handleInitiateDisableLock();
+      return;
+    }
     if (enforce && faceProfiles.length === 0) {
       setErrorMessage("Cannot enforce Biometric Lock without enrolling at least one authorized administrator face profile. Please enroll your face below first.");
       return;
@@ -116,7 +128,7 @@ export default function Admin() {
       setErrorMessage(null);
       const res = await apiRequest("/admin/face-profiles/toggle-restriction", {
         method: "POST",
-        body: JSON.stringify({ enforce })
+        body: JSON.stringify({ enforce: true })
       });
       setRequireFaceMatch(Boolean(res.require_face_match));
       setStatusMessage(res.message || "Face restriction setting updated.");
@@ -124,6 +136,63 @@ export default function Admin() {
       await fetchAudit();
     } catch (err) {
       setErrorMessage(err.message || "Failed to toggle face restriction");
+    }
+  };
+
+  const handleInitiateDisableLock = async () => {
+    setDisableLockError(null);
+    setDisableLockOtp("");
+    setDisableLockLoading(true);
+    try {
+      const res = await apiRequest("/admin/face-profiles/request-disable-otp", { method: "POST" });
+      if (res.email) {
+        setDisableLockTargetEmail(res.email);
+      }
+      setShowDisableLockOtpModal(true);
+      setStatusMessage(`6-digit verification code sent to ${res.email || "teamsankalp60@gmail.com"}.`);
+    } catch (err) {
+      setErrorMessage(err.message || "Failed to dispatch 2-Step Verification code.");
+    } finally {
+      setDisableLockLoading(false);
+    }
+  };
+
+  const handleVerifyDisableLockOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!disableLockOtp || disableLockOtp.trim().length !== 6) {
+      setDisableLockError("Please enter the complete 6-digit verification code.");
+      return;
+    }
+    setDisableLockError(null);
+    setDisableLockLoading(true);
+    try {
+      const res = await apiRequest("/admin/face-profiles/verify-disable-otp", {
+        method: "POST",
+        body: JSON.stringify({ otp: disableLockOtp.trim() })
+      });
+      setShowDisableLockOtpModal(false);
+      setDisableLockOtp("");
+      setRequireFaceMatch(false);
+      setStatusMessage(res.message || "Biometric face lock disabled successfully.");
+      await fetchFaceProfiles();
+      await fetchAudit();
+    } catch (err) {
+      setDisableLockError(err.message || "Invalid or expired verification code.");
+    } finally {
+      setDisableLockLoading(false);
+    }
+  };
+
+  const handleResendDisableLockOtp = async () => {
+    setDisableLockError(null);
+    setDisableLockLoading(true);
+    try {
+      const res = await apiRequest("/admin/face-profiles/request-disable-otp", { method: "POST" });
+      setStatusMessage(`New verification code sent to ${res.email || disableLockTargetEmail}.`);
+    } catch (err) {
+      setDisableLockError(err.message || "Failed to resend code.");
+    } finally {
+      setDisableLockLoading(false);
     }
   };
 
@@ -755,9 +824,10 @@ export default function Admin() {
               faceProfiles={faceProfiles}
               requireFaceMatch={requireFaceMatch}
               onToggleRestriction={handleToggleFaceRestriction}
+              onInitiateDisableLock={handleInitiateDisableLock}
               onAddFace={handleAddFaceProfile}
               onDeleteFace={handleDeleteFaceProfile}
-              loading={loadingFaces}
+              loading={loadingFaces || disableLockLoading}
               onPreviewImage={setPreviewImage}
             />
           )}
@@ -937,6 +1007,150 @@ export default function Admin() {
                 Close Preview
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRIVILEGED 2-STEP VERIFICATION (2FA) MODAL FOR DISABLING BIOMETRIC LOCK */}
+      {showDisableLockOtpModal && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(18, 23, 30, 0.72)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+            zIndex: 1000
+          }}
+        >
+          <div
+            className="modal-content"
+            style={{
+              background: "#FBF9F4",
+              border: "1px solid #DDD6C7",
+              borderRadius: "16px",
+              padding: "32px",
+              maxWidth: "480px",
+              width: "100%",
+              boxShadow: "0 20px 30px -5px rgba(0, 0, 0, 0.25)"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+              <span style={{
+                background: "#FCE7D6",
+                color: "#C25E00",
+                fontSize: "11px",
+                fontWeight: 700,
+                padding: "3px 9px",
+                borderRadius: "999px",
+                letterSpacing: "0.5px"
+              }}>
+                PRIVILEGED SECURITY GATE
+              </span>
+            </div>
+            <h2 style={{ margin: "0 0 10px", fontFamily: "'Newsreader', Georgia, serif", fontSize: "26px", color: "#12171E" }}>
+              2-Step Verification Required
+            </h2>
+            <p style={{ fontSize: "14px", color: "#5A6270", lineHeight: 1.5, marginBottom: "20px" }}>
+              Disabling the Biometric Face Lock lowers administrative access security. A single-use 6-digit confirmation code has been sent to <strong>{disableLockTargetEmail}</strong>.
+            </p>
+
+            {disableLockError && (
+              <div style={{
+                padding: "10px 14px",
+                borderRadius: "8px",
+                background: "#FDEDED",
+                color: "#B42318",
+                border: "1px solid #FECDCA",
+                fontSize: "13.5px",
+                marginBottom: "16px"
+              }}>
+                {disableLockError}
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyDisableLockOtp} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "13px", fontWeight: 600, color: "#12171E" }}>
+                  Enter 6-Digit Email Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  maxLength={6}
+                  placeholder="••••••"
+                  value={disableLockOtp}
+                  onChange={(e) => setDisableLockOtp(e.target.value.replace(/\D/g, ""))}
+                  style={{
+                    letterSpacing: "8px",
+                    textAlign: "center",
+                    fontSize: "24px",
+                    fontWeight: 700,
+                    fontFamily: "monospace",
+                    height: "52px"
+                  }}
+                  className="input-editorial"
+                />
+                <span style={{ fontSize: "12px", color: "#878C94", textAlign: "center" }}>
+                  Code expires in 5 minutes
+                </span>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                <button
+                  type="button"
+                  disabled={disableLockLoading}
+                  onClick={handleResendDisableLockOtp}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#D9822B",
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    padding: 0
+                  }}
+                >
+                  Resend code
+                </button>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
+                <button
+                  type="button"
+                  disabled={disableLockLoading}
+                  onClick={() => {
+                    setShowDisableLockOtpModal(false);
+                    setDisableLockOtp("");
+                    setDisableLockError(null);
+                  }}
+                  className="btn-outline"
+                  style={{ height: "40px", padding: "0 18px", fontSize: "14px" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={disableLockLoading || disableLockOtp.length !== 6}
+                  className="btn-dark"
+                  style={{
+                    height: "40px",
+                    padding: "0 22px",
+                    fontSize: "14px",
+                    opacity: (disableLockLoading || disableLockOtp.length !== 6) ? 0.6 : 1,
+                    cursor: (disableLockLoading || disableLockOtp.length !== 6) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {disableLockLoading ? "Verifying..." : "Verify & Disable"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1085,3 +1085,60 @@ def send_final_purge_takeout_email(
         logger.info("Dispatched final purge takeout email to %s", to_email)
         return True
     return send_email(to_email, subject, text_content, html_content)
+
+
+def send_disable_face_lock_otp_email(
+    to_email: str,
+    admin_name: str,
+    otp_code: str,
+    background: bool = True
+) -> bool:
+    """
+    Sends out-of-band 2FA OTP email required to downgrade security and disable Biometric Face Lock.
+    """
+    subject = "[Security Action] 2-Step Verification Code to Disable Biometric Lock"
+    now_str = get_ist_now_str()
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"><title>2-Step Verification</title></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F3EFE7; margin: 0; padding: 24px; color: #12171E;">
+      <div style="max-width: 520px; margin: 0 auto; background: #FBF9F4; border: 1px solid #DDD6C7; border-radius: 16px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.04);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+          <span style="font-family: Georgia, serif; font-size: 22px; font-weight: 600; color: #12171E;">Sankalp SSO</span>
+          <span style="font-size: 11px; font-weight: 700; background: #F6DDD4; color: #9B3A22; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.5px;">PRIVILEGED 2FA STEP</span>
+        </div>
+        <h2 style="margin: 0 0 10px; font-size: 20px; color: #12171E; font-family: Georgia, serif;">Authorize Security Policy Downgrade</h2>
+        <p style="margin: 0 0 16px; font-size: 14px; color: #5A6270; line-height: 1.5;">
+          Hello <strong>{admin_name}</strong>, a request was received at your Security Command Desk to disable <strong>Administrator Biometric Face Lock</strong>.
+        </p>
+        <div style="background: #EAE4D6; border: 1px solid #C4BCAF; border-radius: 10px; padding: 20px; text-align: center; margin: 20px 0;">
+          <div style="font-size: 11px; font-weight: 700; color: #5A6270; letter-spacing: 1.8px; margin-bottom: 8px;">YOUR 6-DIGIT VERIFICATION CODE</div>
+          <div style="font-size: 38px; font-weight: 700; font-family: monospace; letter-spacing: 8px; color: #12171E;">{otp_code}</div>
+          <div style="font-size: 12px; color: #8A4A0F; margin-top: 8px; font-weight: 500;">⏳ Single-use code · Expires in 5 minutes</div>
+        </div>
+        <div style="background: #FCEEEA; border: 1px solid #ECC4B8; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; font-size: 13px; color: #9B3A22; line-height: 1.45;">
+          <strong>Security Notice:</strong> Disabling Biometric Face Lock removes physical liveness gating for administrator logins. If you did not initiate this action, someone may be attempting to access your desk.
+        </div>
+        <div style="font-size: 11.5px; color: #8A92A0; border-top: 1px solid #EAE4D6; padding-top: 14px;">
+          Timestamp: {now_str}<br/>
+          Sankalp SSO &bull; Cybersecurity & Digital Identity
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    text_content = (
+        f"Confirm Disabling Biometric Face Lock\n\n"
+        f"Your 6-digit verification code: {otp_code}\n\n"
+        f"Expires in 5 minutes. If you did not request this, your admin session may be compromised.\n"
+        f"Timestamp: {now_str}\n"
+    )
+    if background:
+        thread = threading.Thread(target=send_email, args=(to_email, subject, text_content, html_content), daemon=True)
+        thread.start()
+        logger.info("Dispatched 2FA disable face lock OTP to %s", to_email)
+        return True
+    return send_email(to_email, subject, text_content, html_content)
+

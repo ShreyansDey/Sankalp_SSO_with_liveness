@@ -20,10 +20,10 @@ def seed():
         print(" Seeding initial demo users and products...")
 
         # 1. Admin user
-        admin = db.query(User).filter(User.email == "admin@jadavpur.edu").first()
+        admin = db.query(User).filter(User.email.in_(["teamsankalp60@gmail.com", "admin@jadavpur.edu"])).first()
         if not admin:
             admin = User(
-                email="admin@jadavpur.edu",
+                email="teamsankalp60@gmail.com",
                 name="Sankalp Admin",
                 password_hash=hash_password("shaan123"),
                 role="admin",
@@ -32,10 +32,12 @@ def seed():
                 last_active_at=datetime.utcnow()
             )
             db.add(admin)
-            print("   ✅ Created Admin: admin@jadavpur.edu / shaan123")
+            print("   ✅ Created Admin: teamsankalp60@gmail.com / shaan123")
         else:
+            admin.email = "teamsankalp60@gmail.com"
             admin.password_hash = hash_password("shaan123")
             admin.status = "active"
+            print("   ℹ️ Admin already exists, synced to teamsankalp60@gmail.com.")
             print("   ℹ️ Admin already exists, password synced to shaan123.")
 
         # 2. Rahul (Demo Member)

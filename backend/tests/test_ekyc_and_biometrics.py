@@ -334,11 +334,29 @@ def test_admin_face_lock_enforcement_gating(client, db_session, monkeypatch):
     assert len(admin.admin_faces[0]["embedding"]) == 128
     assert admin.require_face_match is True
 
-    # 5. Admin can now toggle off and on freely
-    res_toggle_off = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": False})
-    assert res_toggle_off.status_code == 200
-    assert res_toggle_off.json()["require_face_match"] is False
+    # 5. Direct attempt to toggle off without 2FA must be rejected with 400 2fa_required
+    res_toggle_off_blocked = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": False})
+    assert res_toggle_off_blocked.status_code == 400
+    assert res_toggle_off_blocked.json()["error"] == "2fa_required"
 
+    # Request 2FA OTP code
+    res_otp_req = client.post("/admin/face-profiles/request-disable-otp")
+    assert res_otp_req.status_code == 200
+    vault_entry = admin_module._DISABLE_LOCK_OTP_VAULT.get(admin.id)
+    assert vault_entry is not None
+    otp_code = vault_entry["otp"]
+
+    # Wrong OTP fails
+    res_verify_fail = client.post("/admin/face-profiles/verify-disable-otp", json={"otp": "000000"})
+    assert res_verify_fail.status_code == 400
+    assert res_verify_fail.json()["error"] == "invalid_otp"
+
+    # Correct OTP succeeds and disables biometric lock
+    res_verify_ok = client.post("/admin/face-profiles/verify-disable-otp", json={"otp": otp_code})
+    assert res_verify_ok.status_code == 200
+    assert res_verify_ok.json()["require_face_match"] is False
+
+    # Admin can re-enforce biometric lock since face profile still exists
     res_toggle_on = client.post("/admin/face-profiles/toggle-restriction", json={"enforce": True})
     assert res_toggle_on.status_code == 200
     assert res_toggle_on.json()["require_face_match"] is True

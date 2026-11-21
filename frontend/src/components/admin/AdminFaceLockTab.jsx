@@ -17,6 +17,7 @@ export default function AdminFaceLockTab({
   faceProfiles = [],
   requireFaceMatch = false,
   onToggleRestriction,
+  onInitiateDisableLock,
   onAddFace,
   onDeleteFace,
   loading = false,
@@ -295,7 +296,17 @@ export default function AdminFaceLockTab({
             <button
               type="button"
               disabled={loading || (faceProfiles.length === 0 && !requireFaceMatch)}
-              onClick={() => onToggleRestriction(!requireFaceMatch)}
+              onClick={() => {
+                if (requireFaceMatch && faceProfiles.length > 0) {
+                  if (onInitiateDisableLock) {
+                    onInitiateDisableLock();
+                  } else {
+                    onToggleRestriction(false);
+                  }
+                } else {
+                  onToggleRestriction(true);
+                }
+              }}
               className={(requireFaceMatch && faceProfiles.length > 0) ? "btn-outline" : "btn-dark"}
               style={{
                 height: "38px",

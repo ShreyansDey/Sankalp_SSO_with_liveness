@@ -26,3 +26,7 @@ class AddAdminFaceRequest(BaseModel):
 
 class ToggleRestrictionRequest(BaseModel):
     enforce: bool
+
+class VerifyDisableOtpRequest(BaseModel):
+    otp: str
+
