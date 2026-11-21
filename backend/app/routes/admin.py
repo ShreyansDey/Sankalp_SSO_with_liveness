@@ -22,7 +22,8 @@ from app.jobs.cleanup import run_cleanup_job
 from app.services.email_service import (
     send_mark_as_left_email,
     send_renewal_status_email,
-    send_final_purge_takeout_email
+    send_final_purge_takeout_email,
+    send_invite_email
 )
 from app.services.face_engine import extract_face_embedding
 
@@ -65,6 +66,10 @@ def create_invite(
     )
 
     invite_url = f"{FRONTEND_ORIGIN}/signup?token={raw_token}"
+    
+    # Automatically send the invitation email to the receiver
+    send_invite_email(payload.email, invite_url, payload.role)
+
     return {
         "status": "ok",
         "invite_id": invite.id,

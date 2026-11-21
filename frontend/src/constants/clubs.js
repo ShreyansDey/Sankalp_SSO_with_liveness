@@ -1,6 +1,29 @@
 /**
  * Central Definition of the 5 Connected University Campus Club Applications
  */
+export function resolveClubUrl(club) {
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol;
+    const host = window.location.hostname;
+    if (host.endsWith(".sa")) {
+      const subdomains = {
+        "app-a": "photoclub.sa",
+        "app-b": "roboticsclub.sa",
+        "app-c": "codingclub.sa",
+        "app-d": "chessclub.sa",
+        "app-e": "sportsclub.sa"
+      };
+      const targetDomain = subdomains[club.id] || `${club.id}.sa`;
+      return `${proto}//${targetDomain}`;
+    }
+    if (host === "localhost" || host === "127.0.0.1") {
+      return `http://localhost:${club.port}`;
+    }
+    return `${proto}//${host}:${club.port}`;
+  }
+  return `http://localhost:${club.port}`;
+}
+
 export const CAMPUS_CLUBS = [
   {
     id: "app-a",

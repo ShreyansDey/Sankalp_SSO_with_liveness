@@ -236,6 +236,87 @@ def send_password_reset_email(
         return send_email(to_email, subject, text_content, html_content)
 
 
+def build_invite_email(email: str, invite_link: str, role: str) -> tuple[str, str]:
+    """Generate both plain-text and HTML formatted invitation templates."""
+    text_content = f"""Hello,
+
+You have been invited to join Real Access (Sankalp SSO) as a {role}.
+
+To accept your invitation and activate your account, please open the following link:
+{invite_link}
+
+Security & Expiration Note:
+- This invitation link is unique and single-use.
+- It will expire in 7 days.
+
+Best regards,
+Real Access Administration Team
+"""
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're Invited to Real Access</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F3EFE7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #12171E;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F3EFE7; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 540px; background-color: #FFFFFF; border-radius: 12px; border: 1px solid #E2DCCF; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="background-color: #12171E; padding: 24px 32px;">
+              <span style="color: #F5F1E8; font-size: 20px; font-weight: 600; font-family: Georgia, serif;">Real Access</span>
+              <span style="color: #D9822B; font-size: 11px; font-weight: 700; margin-left: 8px; letter-spacing: 1.5px; text-transform: uppercase;">INVITATION</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 36px;">
+              <h2 style="margin: 0 0 16px; font-size: 22px; font-family: Georgia, serif; color: #12171E;">You're Invited!</h2>
+              <p style="color: #5A6270; font-size: 15px; line-height: 1.55; margin: 0 0 24px;">
+                An administrator has invited you to join the university digital identity network as <strong>{role}</strong>.
+              </p>
+              <div style="text-align: center; margin: 28px 0;">
+                <a href="{invite_link}" style="background-color: #12171E; color: #F5F1E8; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; display: inline-block;">
+                  Accept Invitation & Activate Account
+                </a>
+              </div>
+              <p style="color: #7A8290; font-size: 13px; line-height: 1.5; margin: 24px 0 0; word-break: break-all;">
+                Or copy and paste this link in your browser:<br/>
+                <a href="{invite_link}" style="color: #8A4A0F;">{invite_link}</a>
+              </p>
+              <p style="color: #8A92A0; font-size: 12px; margin: 20px 0 0; border-top: 1px solid #EAE5D9; padding-top: 16px;">
+                This single-use invitation expires in 7 days.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return text_content, html_content
+
+
+def send_invite_email(to_email: str, invite_link: str, role: str = "member", background: bool = True) -> bool:
+    """Dispatches invite email with link."""
+    subject = "You're invited to join Real Access (Sankalp SSO)"
+    text_content, html_content = build_invite_email(to_email, invite_link, role)
+    if background:
+        thread = threading.Thread(
+            target=send_email,
+            args=(to_email, subject, text_content, html_content),
+            daemon=True
+        )
+        thread.start()
+        logger.info("Dispatched background invitation email to %s", to_email)
+        return True
+    else:
+        return send_email(to_email, subject, text_content, html_content)
+
+
 def build_mark_as_left_email(name: str, renew_url: str) -> tuple[str, str]:
     """Generate email templates when user is marked as left by admin (48h purge notice)."""
     greeting_name = name.strip() if name and name.strip() else "Member"

@@ -86,12 +86,27 @@ export default function Clubs() {
     );
   }
 
-  const isLocalHost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
   const getClubUrl = (port, path) => {
-    if (isLocalHost) {
-      return `http://localhost:${port}`;
+    if (typeof window !== "undefined") {
+      const proto = window.location.protocol;
+      const host = window.location.hostname;
+      if (host.endsWith(".sa")) {
+        const subdomains = {
+          "app-a": "photoclub.sa",
+          "app-b": "roboticsclub.sa",
+          "app-c": "codingclub.sa",
+          "app-d": "chessclub.sa",
+          "app-e": "sportsclub.sa"
+        };
+        const targetDomain = subdomains[path] || `${path}.sa`;
+        return `${proto}//${targetDomain}`;
+      }
+      if (host === "localhost" || host === "127.0.0.1") {
+        return `http://localhost:${port}`;
+      }
+      return `${proto}//${host}:${port}`;
     }
-    return `${window.location.origin}/${path}`;
+    return `http://localhost:${port}`;
   };
 
   // 5 Active University Campus Clubs
