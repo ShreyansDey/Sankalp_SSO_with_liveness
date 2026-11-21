@@ -684,25 +684,6 @@ export default function Register() {
               >
                 Back to Sign In
               </Link>
-
-              <Link
-                to="/login"
-                style={{
-                  height: "42px",
-                  background: "#F5ECD7",
-                  color: "#8A4A0F",
-                  border: "1px solid #D9822B",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  fontWeight: 600,
-                  fontSize: "13.5px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                Admin Sign In to Review & Approve &rarr;
-              </Link>
             </div>
           </div>
         </main>
