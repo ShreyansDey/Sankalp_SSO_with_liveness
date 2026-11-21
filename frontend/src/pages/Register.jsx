@@ -1259,14 +1259,16 @@ export default function Register() {
                     marginBottom: "10px",
                     fontSize: "12px"
                   }}>
-                    <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap" }}>
+                    <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap", flexShrink: 0 }}>
                       Switch Camera:
                     </span>
                     <select
                       value={selectedDeviceId}
                       onChange={(e) => switchCamera(e.target.value)}
                       style={{
-                        flex: "1 1 180px",
+                        flex: 1,
+                        minWidth: 0,
+                        width: "100%",
                         maxWidth: "100%",
                         height: "28px",
                         padding: "0 6px",
@@ -1275,7 +1277,10 @@ export default function Register() {
                         background: "#FFFFFF",
                         fontSize: "12px",
                         color: "#12171E",
-                        cursor: "pointer"
+                        cursor: "pointer",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden"
                       }}
                     >
                       {videoDevices.map((dev, idx) => {
@@ -1309,12 +1314,14 @@ export default function Register() {
                   fontSize: "12px",
                   color: "#5A6270"
                 }}>
-                  <span style={{ fontWeight: 500, color: "#12171E", whiteSpace: "nowrap" }}>Camera:</span>
+                  <span style={{ fontWeight: 500, color: "#12171E", whiteSpace: "nowrap", flexShrink: 0 }}>Camera:</span>
                   <select
                     value={selectedDeviceId}
                     onChange={(e) => switchCamera(e.target.value)}
                     style={{
-                      flex: "1 1 180px",
+                      flex: 1,
+                      minWidth: 0,
+                      width: "100%",
                       maxWidth: "100%",
                       height: "28px",
                       padding: "0 6px",
@@ -1323,7 +1330,10 @@ export default function Register() {
                       background: "#FFFFFF",
                       fontSize: "12px",
                       color: "#12171E",
-                      cursor: "pointer"
+                      cursor: "pointer",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden"
                     }}
                   >
                     {videoDevices.map((dev, idx) => {

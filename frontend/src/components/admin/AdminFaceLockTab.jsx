@@ -479,16 +479,16 @@ export default function AdminFaceLockTab({
                 maxWidth: "380px",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px",
+                gap: "10px",
                 background: "#FDFBF7",
                 border: "1px solid #C4BCAF",
                 borderRadius: "8px",
-                padding: "6px 12px",
+                padding: "8px 12px",
                 fontSize: "12px",
-                boxSizing: "border-box"
+                boxSizing: "border-box",
+                overflow: "hidden"
               }}>
-                <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap" }}>
+                <span style={{ fontWeight: 600, color: "#12171E", whiteSpace: "nowrap", flexShrink: 0 }}>
                   Camera:
                 </span>
                 <select
@@ -496,15 +496,20 @@ export default function AdminFaceLockTab({
                   onChange={(e) => switchCamera(e.target.value)}
                   style={{
                     flex: 1,
+                    minWidth: 0,
+                    width: "100%",
                     maxWidth: "100%",
-                    height: "30px",
+                    height: "32px",
                     padding: "0 8px",
                     borderRadius: "6px",
                     border: "1px solid #C4BCAF",
                     background: "#FFFFFF",
                     fontSize: "12px",
                     color: "#12171E",
-                    cursor: "pointer"
+                    cursor: "pointer",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden"
                   }}
                 >
                   {videoDevices.map((dev, idx) => {
@@ -518,8 +523,8 @@ export default function AdminFaceLockTab({
                       devLabel.toLowerCase().includes("hd camera")
                     );
                     return (
-                      <option key={dev.deviceId || idx} value={dev.deviceId}>
-                        {devLabel} {isSystem ? "(System / Built-in Camera)" : ""}
+                      <option key={dev.deviceId || idx} value={dev.deviceId} title={devLabel}>
+                        {devLabel} {isSystem ? "(System / Built-in)" : ""}
                       </option>
                     );
                   })}
