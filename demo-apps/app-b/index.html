@@ -72,7 +72,9 @@ Technical Architecture:
 <script>
   const CLIENT_ID = "app-b";
   const CLIENT_SECRET = "secret-app-b-key-2026";
-  const AUTH_SERVER = window.location.protocol + "//" + window.location.hostname + ":8001";
+  const AUTH_SERVER = window.location.hostname.endsWith(".sa")
+    ? window.location.protocol + "//sankalp.sa"
+    : window.location.protocol + "//" + window.location.hostname + ":8001";
   const REDIRECT_URI = window.location.origin + "/callback";
 
   function initiateLogin() {
