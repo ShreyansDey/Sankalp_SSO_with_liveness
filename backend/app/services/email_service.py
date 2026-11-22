@@ -109,8 +109,8 @@ def send_email(
         )
         return False
 
-    from_name = (EMAIL_FROM_NAME or "Real Access (Sankalp SSO)").strip('"\'').replace("_", " ")
-    from_addr = EMAIL_FROM or SMTP_USER
+    from_name = (EMAIL_FROM_NAME or "Sankalp SSO").strip('"\'').replace("_", " ")
+    from_addr = SMTP_USER or EMAIL_FROM
 
     # When inline images are present, wrap in multipart/related -> multipart/alternative
     if inline_images and html_content:
@@ -152,8 +152,7 @@ def send_email(
     msg_to_send["Reply-To"] = from_addr
     msg_to_send["Date"] = email.utils.formatdate(localtime=True)
     msg_to_send["Message-ID"] = email.utils.make_msgid(domain=from_addr.split("@")[-1] if "@" in from_addr else "gmail.com")
-    msg_to_send["Auto-Submitted"] = "auto-generated"
-    msg_to_send["X-Auto-Response-Suppress"] = "All"
+    msg_to_send["X-Mailer"] = "Sankalp SSO Security Gateway"
 
     clean_pass = _clean_smtp_password()
 

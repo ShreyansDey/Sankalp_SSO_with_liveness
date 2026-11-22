@@ -42,6 +42,32 @@ APP_E_ORIGIN = os.getenv("APP_E_ORIGIN", "http://localhost:5178")
 # Environment indicator
 IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
 
+def resolve_frontend_origin(request=None) -> str:
+    """
+    Dynamically resolve the frontend origin based on incoming request headers.
+    Ensures invite and reset links generated via public tunnels (ngrok, etc.)
+    open correctly on remote mobile devices and other laptops.
+    """
+    if request:
+        origin = request.headers.get("origin")
+        if origin and origin != "null":
+            return origin.rstrip("/")
+        referer = request.headers.get("referer")
+        if referer:
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            if p.scheme and p.netloc:
+                return f"{p.scheme}://{p.netloc}".rstrip("/")
+        forwarded_host = request.headers.get("x-forwarded-host")
+        if forwarded_host:
+            proto = request.headers.get("x-forwarded-proto") or ("https" if "ngrok" in forwarded_host else "http")
+            return f"{proto}://{forwarded_host}".rstrip("/")
+        host = request.headers.get("host")
+        if host and ("ngrok" in host or "trycloudflare" in host):
+            proto = "https"
+            return f"{proto}://{host}".rstrip("/")
+    return FRONTEND_ORIGIN.rstrip("/")
+
 # SMTP & Email Settings
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
