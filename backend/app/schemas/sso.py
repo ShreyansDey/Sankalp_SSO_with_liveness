@@ -5,6 +5,14 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class AuthorizeCodeRequest(BaseModel):
+    client_id: str
+    redirect_uri: str
+    state: Optional[str] = None
+    code_challenge: Optional[str] = None
+    code_challenge_method: Optional[str] = "S256"
+
+
 class TokenRequest(BaseModel):
     grant_type: str = "authorization_code"
     code: str

@@ -385,6 +385,22 @@ export default function Liveness() {
 
   const handleRedirectAfterPass = async () => {
     if (clientId && redirectUri) {
+      try {
+        const authRes = await apiRequest("/authorize/code", {
+          method: "POST",
+          body: JSON.stringify({
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            state: state || undefined,
+          }),
+        });
+        if (authRes && authRes.redirect_url) {
+          window.location.href = authRes.redirect_url;
+          return;
+        }
+      } catch (e) {
+        // Fallback to standard browser redirect
+      }
       window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;

@@ -11,7 +11,7 @@ from app.config import ACCESS_TOKEN_MINUTES, FRONTEND_ORIGIN
 from app.database import get_db
 from app.deps import get_api_key_record, get_current_session, get_current_user_from_session, get_current_user_from_token
 from app.models import AuthCode, Product, RefreshToken, SsoSession, User
-from app.schemas.sso import IntrospectRequest, RefreshRequest, RevokeRequest, TokenRequest
+from app.schemas.sso import AuthorizeCodeRequest, IntrospectRequest, RefreshRequest, RevokeRequest, TokenRequest
 from app.security import (
     constant_time_compare,
     create_access_token,
@@ -74,54 +74,23 @@ def openid_discovery(request: Request):
     }
 
 
-@router.get("/authorize")
-def authorize(
-    request: Request,
-    client_id: str = Query(...),
-    redirect_uri: str = Query(...),
-    response_type: str = Query("code"),
-    state: Optional[str] = Query(None),
-    code_challenge: Optional[str] = Query(None),
-    code_challenge_method: Optional[str] = Query("S256"),
-    db: Session = Depends(get_db),
-    session_obj: Optional[SsoSession] = Depends(get_current_session),
-):
-    """OAuth2 Authorization Code endpoint enforcing exact redirect URI match and optional PKCE."""
-    if response_type != "code":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "unsupported_response_type", "message": "Only response_type=code is supported"},
-        )
-
-    product = db.query(Product).filter(Product.client_id == client_id).first()
-    if not product:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_client", "message": "Unknown client_id"},
-        )
-
-    if not _is_allowed_redirect_uri(product, redirect_uri):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_redirect_uri", "message": "redirect_uri does not match registered client URI"},
-        )
-
-    if code_challenge and (code_challenge_method or "S256").upper() not in {"S256", "PLAIN"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_request", "message": "Unsupported code_challenge_method"},
-        )
-
-    if not session_obj:
-        target = quote(str(request.url), safe="")
-        return RedirectResponse(url=f"{FRONTEND_ORIGIN}/login?next={target}", status_code=302)
-
-    user = db.query(User).filter(User.id == session_obj.user_id).first()
+def _validate_and_issue_auth_code(
+    db: Session,
+    user_id: str,
+    client_id: str,
+    redirect_uri: str,
+    state: Optional[str],
+    code_challenge: Optional[str],
+    code_challenge_method: Optional[str],
+    product: Product,
+) -> str:
+    """Validate active user and mint a single-use authorization code redirect URL."""
+    user = db.query(User).filter(User.id == user_id).first()
     if not user or user.status != "active":
         log_audit(
             db,
             action="access_denied",
-            actor_id=session_obj.user_id,
+            actor_id=user_id,
             target_id=product.id,
             detail={"reason": f"account_{user.status}" if user else "missing_user", "client_id": client_id},
         )
@@ -157,7 +126,92 @@ def authorize(
     redirect_target = f"{redirect_uri}{separator}code={quote(raw_code, safe='')}"
     if state:
         redirect_target += f"&state={quote(state, safe='')}"
+    return redirect_target
+
+
+def _resolve_authorize_product(
+    db: Session,
+    client_id: str,
+    redirect_uri: str,
+    code_challenge: Optional[str],
+    code_challenge_method: Optional[str],
+) -> Product:
+    product = db.query(Product).filter(Product.client_id == client_id).first()
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_client", "message": "Unknown client_id"},
+        )
+    if not _is_allowed_redirect_uri(product, redirect_uri):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_redirect_uri", "message": "redirect_uri does not match registered client URI"},
+        )
+    if code_challenge and (code_challenge_method or "S256").upper() not in {"S256", "PLAIN"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid_request", "message": "Unsupported code_challenge_method"},
+        )
+    return product
+
+
+@router.get("/authorize")
+def authorize(
+    request: Request,
+    client_id: str = Query(...),
+    redirect_uri: str = Query(...),
+    response_type: str = Query("code"),
+    state: Optional[str] = Query(None),
+    code_challenge: Optional[str] = Query(None),
+    code_challenge_method: Optional[str] = Query("S256"),
+    db: Session = Depends(get_db),
+    session_obj: Optional[SsoSession] = Depends(get_current_session),
+):
+    """OAuth2 Authorization Code endpoint enforcing exact redirect URI match and optional PKCE."""
+    if response_type != "code":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "unsupported_response_type", "message": "Only response_type=code is supported"},
+        )
+
+    product = _resolve_authorize_product(db, client_id, redirect_uri, code_challenge, code_challenge_method)
+
+    if not session_obj:
+        target = quote(str(request.url), safe="")
+        return RedirectResponse(url=f"{FRONTEND_ORIGIN}/login?next={target}", status_code=302)
+
+    redirect_target = _validate_and_issue_auth_code(
+        db, session_obj.user_id, client_id, redirect_uri, state, code_challenge, code_challenge_method, product
+    )
     return RedirectResponse(url=redirect_target, status_code=302)
+
+
+@router.post("/authorize/code")
+def authorize_with_session(
+    payload: AuthorizeCodeRequest,
+    db: Session = Depends(get_db),
+    session_obj: Optional[SsoSession] = Depends(get_current_session),
+):
+    """Authenticated OAuth2 code issuance for cross-origin SPAs using Bearer session tokens."""
+    if not session_obj:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "unauthorized", "message": "Active SSO session required"},
+        )
+    product = _resolve_authorize_product(
+        db, payload.client_id, payload.redirect_uri, payload.code_challenge, payload.code_challenge_method
+    )
+    redirect_target = _validate_and_issue_auth_code(
+        db,
+        session_obj.user_id,
+        payload.client_id,
+        payload.redirect_uri,
+        payload.state,
+        payload.code_challenge,
+        payload.code_challenge_method,
+        product,
+    )
+    return {"redirect_url": redirect_target}
 
 
 @router.post("/token")

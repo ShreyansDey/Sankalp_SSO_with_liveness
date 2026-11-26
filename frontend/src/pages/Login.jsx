@@ -23,9 +23,20 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const clientId = searchParams.get("client_id") || "";
-  const redirectUri = searchParams.get("redirect_uri") || "";
-  const state = searchParams.get("state") || "";
+  let clientId = searchParams.get("client_id") || "";
+  let redirectUri = searchParams.get("redirect_uri") || "";
+  let state = searchParams.get("state") || "";
+  const nextUrl = searchParams.get("next") || "";
+  if ((!clientId || !redirectUri) && nextUrl) {
+    try {
+      const parsedNext = new URL(nextUrl, window.location.origin);
+      clientId = clientId || parsedNext.searchParams.get("client_id") || "";
+      redirectUri = redirectUri || parsedNext.searchParams.get("redirect_uri") || "";
+      state = state || parsedNext.searchParams.get("state") || "";
+    } catch (e) {
+      // ignore malformed next parameter
+    }
+  }
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +58,22 @@ export default function Login() {
         const me = await apiRequest("/me");
         if (me && me.status === "active") {
           if (clientId && redirectUri) {
-            // Already authenticated -> issue code and redirect back to client app
+            try {
+              const authRes = await apiRequest("/authorize/code", {
+                method: "POST",
+                body: JSON.stringify({
+                  client_id: clientId,
+                  redirect_uri: redirectUri,
+                  state: state || undefined,
+                }),
+              });
+              if (authRes && authRes.redirect_url) {
+                window.location.href = authRes.redirect_url;
+                return;
+              }
+            } catch (err) {
+              // Fall back to standard /authorize navigation
+            }
             window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
             return;
           }
@@ -100,6 +126,22 @@ export default function Login() {
         });
       } else if (res.next === "authenticated") {
         if (clientId && redirectUri) {
+          try {
+            const authRes = await apiRequest("/authorize/code", {
+              method: "POST",
+              body: JSON.stringify({
+                client_id: clientId,
+                redirect_uri: redirectUri,
+                state: state || undefined,
+              }),
+            });
+            if (authRes && authRes.redirect_url) {
+              window.location.href = authRes.redirect_url;
+              return;
+            }
+          } catch (err) {
+            // Fall back to standard /authorize navigation
+          }
           window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
         } else if (res.user && res.user.role === "admin") {
           navigate("/admin", { replace: true });
