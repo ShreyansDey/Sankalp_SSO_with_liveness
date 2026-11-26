@@ -33,11 +33,17 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
 
-  // Check if an active SSO session already exists
+  // Check if an active SSO session already exists or initial setup is required
   useEffect(() => {
     async function checkSession() {
       try {
+        apiRequest("/api/v1/setup/status")
+          .then((st) => {
+            if (st && st.needs_bootstrap) setNeedsBootstrap(true);
+          })
+          .catch(() => {});
         const me = await apiRequest("/me");
         if (me && me.status === "active") {
           if (clientId && redirectUri) {
@@ -77,15 +83,21 @@ export default function Login() {
       });
 
       if (res.next === "liveness") {
-        // Proceed to liveness challenge with preserved redirect parameters
+        // Proceed to liveness challenge with preserved redirect parameters and signed ticket
+        if (res.login_ticket) {
+          sessionStorage.setItem("sankalp_liveness_ticket", res.login_ticket);
+        }
         const params = new URLSearchParams();
         params.set("user_id", res.user_id);
-        params.set("email", res.email);
+        if (email) params.set("email", email);
         if (clientId) params.set("client_id", clientId);
         if (redirectUri) params.set("redirect_uri", redirectUri);
         if (state) params.set("state", state);
 
-        navigate(`/liveness?${params.toString()}`, { replace: true });
+        navigate(`/liveness?${params.toString()}`, {
+          replace: true,
+          state: { loginTicket: res.login_ticket, userId: res.user_id, email },
+        });
       } else if (res.next === "authenticated") {
         if (clientId && redirectUri) {
           window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
@@ -270,6 +282,20 @@ export default function Login() {
               Sign in with your university or club account.
             </p>
           </div>
+
+          {needsBootstrap && (
+            <div style={{
+              background: "#FFFBEB",
+              border: "1px solid #FDE68A",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              color: "#92400E",
+              fontSize: "13px"
+            }}>
+              <strong>First-Time Setup Required:</strong> No Super Admin exists yet.{" "}
+              <Link to="/setup" style={{ fontWeight: 700, color: "#12171E" }}>Configure Superuser &amp; Primary Key &rarr;</Link>
+            </div>
+          )}
 
           {error && (
             <div style={{

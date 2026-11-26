@@ -152,9 +152,10 @@ export default function Liveness() {
       setStepTimeLeft(STEP_TIME_LIMIT);
       setErrorMsg("");
 
+      const loginTicket = sessionStorage.getItem("sankalp_liveness_ticket");
       const data = await apiRequest("/liveness/challenge", {
         method: "POST",
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify({ user_id: userId, login_ticket: loginTicket || undefined }),
       });
 
       challengeRef.current = data;
@@ -347,6 +348,7 @@ export default function Liveness() {
     }
 
     try {
+      const loginTicket = sessionStorage.getItem("sankalp_liveness_ticket");
       const res = await apiRequest("/liveness/result", {
         method: "POST",
         body: JSON.stringify({
@@ -354,11 +356,13 @@ export default function Liveness() {
           code: ch.code,
           passed: passed,
           fail_reason: failReason,
-          live_frame: frameToSubmit
+          live_frame: frameToSubmit,
+          login_ticket: loginTicket || undefined,
         }),
       });
 
       if (res.passed) {
+        sessionStorage.removeItem("sankalp_liveness_ticket");
         if (res.session_id) {
           localStorage.setItem("sso_session_id", res.session_id);
         }
@@ -381,7 +385,7 @@ export default function Liveness() {
 
   const handleRedirectAfterPass = async () => {
     if (clientId && redirectUri) {
-      window.location.href = `${API_BASE}/sso/authorize?client_id=${encodeURIComponent(
+      window.location.href = `${API_BASE}/authorize?client_id=${encodeURIComponent(
         clientId
       )}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
       return;

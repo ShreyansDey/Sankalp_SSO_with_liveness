@@ -54,6 +54,14 @@ export default defineConfig({
         target: 'http://localhost:8001',
         changeOrigin: true
       },
+      '/api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true
+      },
+      '/.well-known': {
+        target: 'http://localhost:8001',
+        changeOrigin: true
+      },
       '/app-a': {
         target: 'http://localhost:5174',
         changeOrigin: true,

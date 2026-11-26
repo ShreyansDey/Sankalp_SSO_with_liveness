@@ -8,6 +8,7 @@ import AdminInvitesTab from "../components/admin/AdminInvitesTab";
 import AdminCleanupTab from "../components/admin/AdminCleanupTab";
 import AdminAuditTab from "../components/admin/AdminAuditTab";
 import AdminFaceLockTab from "../components/admin/AdminFaceLockTab";
+import AdminIntegrationsTab from "../components/admin/AdminIntegrationsTab";
 
 /**
  * ==============================================================================
@@ -677,6 +678,14 @@ export default function Admin() {
               </span>
             )}
           </button>
+
+          <button
+            ref={activeTab === "integrations" ? activeTabRef : null}
+            className={`admin-tab-btn ${activeTab === "integrations" ? "active-tab" : ""}`}
+            onClick={() => setActiveTab("integrations")}
+          >
+            <span>API & Integrations</span>
+          </button>
         </nav>
 
         {/* MAIN ADMIN WORK AREA */}
@@ -788,6 +797,9 @@ export default function Admin() {
               onPreviewImage={setPreviewImage}
             />
           )}
+
+          {/* TAB: UNIVERSAL API & INTEGRATIONS */}
+          {activeTab === "integrations" && <AdminIntegrationsTab />}
         </main>
       </div>
 

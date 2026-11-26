@@ -177,8 +177,12 @@ export default function Signup() {
       });
 
       if (res.status === "ok" && res.next === "liveness") {
-        navigate(`/liveness?user_id=${encodeURIComponent(res.user_id)}&email=${encodeURIComponent(res.email)}`, {
-          replace: true
+        if (res.login_ticket) {
+          sessionStorage.setItem("sankalp_liveness_ticket", res.login_ticket);
+        }
+        navigate(`/liveness?user_id=${encodeURIComponent(res.user_id)}&email=${encodeURIComponent(res.email || "")}`, {
+          replace: true,
+          state: { loginTicket: res.login_ticket, userId: res.user_id, email: res.email },
         });
       } else {
         navigate("/login", { replace: true });

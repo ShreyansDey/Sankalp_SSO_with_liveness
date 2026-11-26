@@ -58,7 +58,7 @@ def get_pids_by_port(port):
     pids = set()
     if sys.platform == "win32":
         try:
-            output = subprocess.check_output("netstat -ano", shell=True).decode()
+            output = subprocess.check_output("netstat -ano", shell=True).decode(errors="ignore")
             for line in output.strip().splitlines():
                 parts = line.strip().split()
                 if len(parts) >= 5 and "LISTENING" in line.upper():
@@ -71,13 +71,22 @@ def get_pids_by_port(port):
         except Exception:
             pass
     else:
-        try:
-            output = subprocess.check_output(f"lsof -t -i:{port}", shell=True).decode()
-            for line in output.strip().splitlines():
-                if line.strip():
-                    pids.add(int(line.strip()))
-        except Exception:
-            pass
+        for cmd in (f"lsof -t -i:{port}", f"ss -ltnp 'sport = :{port}'"):
+            try:
+                output = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode(errors="ignore")
+                for line in output.strip().splitlines():
+                    line = line.strip()
+                    if line.isdigit():
+                        pids.add(int(line))
+                    elif "pid=" in line:
+                        for part in line.split("pid=")[1:]:
+                            num = "".join(ch for ch in part if ch.isdigit())
+                            if num:
+                                pids.add(int(num))
+                if pids:
+                    break
+            except Exception:
+                continue
     return pids
 
 def kill_pid(pid):
