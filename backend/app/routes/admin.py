@@ -1,146 +1,115 @@
-import os
-import uuid
-import base64
-import secrets
-from pathlib import Path
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models import User, Invite, Product, SsoSession, RefreshToken, AuditLog, RenewalRequest
-from app.security import (
-    hash_token,
-    generate_random_token,
-    hash_password
-)
 from app.audit import log_audit
-from app.config import FRONTEND_ORIGIN, PURGE_GRACE_HOURS, resolve_frontend_origin
+from app.config import ORG_NAME, PURGE_GRACE_HOURS, resolve_frontend_origin
+from app.database import get_db
 from app.deps import require_admin_user
 from app.jobs.cleanup import run_cleanup_job
-from app.services.face_engine import extract_face_embedding
+from app.models import (
+    AuditLog,
+    Invite,
+    Product,
+    RefreshToken,
+    RenewalRequest,
+    SsoSession,
+    User,
+)
+from app.routes.admin_applications import router as applications_router
+from app.routes.admin_facelock import router as facelock_router
+from app.schemas.admin import CreateInviteRequest, CreateProductRequest, DisableRequest, RenewalActionRequest
+from app.security import generate_random_token, hash_token
+from app.services.face_engine import extract_face_embedding  # noqa: F401
 from app.services.email_service import (
     send_invite_email,
-    send_application_approved_email,
-    send_application_rejected_email,
-    send_marked_as_left_email,
     send_mark_as_left_email,
     send_renewal_status_email,
-    send_final_purge_takeout_email,
-    send_disable_face_lock_otp_email,
-    to_ist_str
+    to_ist_str,
 )
 
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
-FACES_DIR = UPLOAD_DIR / "faces"
-FACES_DIR.mkdir(parents=True, exist_ok=True)
+router = APIRouter(prefix="/admin", tags=["Admin"])
+router.include_router(applications_router)
+router.include_router(facelock_router)
 
-# In-memory transient vault for 2FA OTP codes to disable Biometric Face Lock
-_DISABLE_LOCK_OTP_VAULT: Dict[str, Dict[str, Any]] = {}
-
-router = APIRouter(prefix="/admin", tags=["admin"])
-
-from app.schemas.admin import (
-    CreateInviteRequest,
-    DisableRequest,
-    CreateProductRequest,
-    RenewalActionRequest,
-    AddAdminFaceRequest,
-    ToggleRestrictionRequest,
-    VerifyDisableOtpRequest
-)
 
 @router.post("/invites")
 def create_invite(
     payload: CreateInviteRequest,
     request: Request = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """M1: Admin invites a member and optionally sets term_end."""
+    """Admin invites a member and optionally sets term_end."""
     raw_token = generate_random_token(32)
-    token_h = hash_token(raw_token)
     expires_at = datetime.utcnow() + timedelta(days=7)
 
     invite = Invite(
-        email=payload.email,
+        email=payload.email.strip().lower(),
         role=payload.role,
         term_end=payload.term_end,
-        token_hash=token_h,
+        token_hash=hash_token(raw_token),
         expires_at=expires_at,
-        created_by=admin.id
+        created_by=admin.id,
     )
     db.add(invite)
     db.commit()
 
-    log_audit(
-        db,
-        action="invite_created",
-        actor_id=admin.id,
-        detail={"email": payload.email, "role": payload.role}
-    )
+    log_audit(db, action="invite_created", actor_id=admin.id, detail={"email": invite.email, "role": payload.role})
 
     base_origin = resolve_frontend_origin(request)
     invite_url = f"{base_origin}/register?token={raw_token}"
 
-    # Dispatch invite email to student in background
     send_invite_email(
-        to_email=payload.email,
+        to_email=invite.email,
         invite_link=invite_url,
         role=payload.role,
         term_end=str(payload.term_end) if payload.term_end else None,
-        background=True
+        org_name=ORG_NAME or "Recognized Campus Societies",
+        background=True,
     )
-
     return {
         "status": "ok",
         "invite_id": invite.id,
         "invite_token": raw_token,
         "link": invite_url,
-        "expires_at": expires_at.isoformat()
+        "expires_at": expires_at.isoformat(),
     }
 
+
 @router.get("/invites")
-def list_invites(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
+def list_invites(db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
     """List all invites and their current status."""
     invites = db.query(Invite).order_by(Invite.expires_at.desc()).all()
     now = datetime.utcnow()
     res = []
     for inv in invites:
-        if inv.used_at:
-            status = "accepted"
-        elif inv.expires_at < now:
-            status = "expired"
-        else:
-            status = "pending"
-        res.append({
-            "id": inv.id,
-            "email": inv.email,
-            "role": inv.role,
-            "term_end": inv.term_end.isoformat() if inv.term_end else None,
-            "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
-            "used_at": inv.used_at.isoformat() if inv.used_at else None,
-            "status": status,
-        })
+        inv_status = "accepted" if inv.used_at else ("expired" if inv.expires_at < now else "pending")
+        res.append(
+            {
+                "id": inv.id,
+                "email": inv.email,
+                "role": inv.role,
+                "term_end": inv.term_end.isoformat() if inv.term_end else None,
+                "expires_at": inv.expires_at.isoformat() if inv.expires_at else None,
+                "used_at": inv.used_at.isoformat() if inv.used_at else None,
+                "status": inv_status,
+            }
+        )
     return res
+
 
 @router.get("/users")
 def list_users(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
     """List users, optionally filtered by status."""
     query = db.query(User)
     if status:
         query = query.filter(User.status == status)
-
     users = query.order_by(User.created_at.desc()).all()
     return [
         {
@@ -155,52 +124,40 @@ def list_users(
             "liveness_passed_at": u.liveness_passed_at.isoformat() if u.liveness_passed_at else None,
             "disabled_at": u.disabled_at.isoformat() if u.disabled_at else None,
             "disabled_reason": u.disabled_reason,
-            "created_at": u.created_at.isoformat()
+            "created_at": u.created_at.isoformat(),
         }
         for u in users
     ]
+
 
 @router.post("/users/{user_id}/mark-left")
 def mark_user_left(
     user_id: str,
     request: Request = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """
-    M5/FR2: 'Mark as left' instantly blocks all connected products.
-    Revokes the SSO session and all refresh tokens immediately.
-    """
+    """Instant offboarding: disable account and revoke every session & refresh token atomically."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "User not found"}
-        )
-
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": "User not found"})
     if user.role == "admin":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "cannot_remove_admin", "message": "Administrators are protected and cannot be marked as left or removed."}
+            status_code=400,
+            detail={"error": "cannot_remove_admin", "message": "Administrator accounts cannot be marked as left."},
         )
 
     now = datetime.utcnow()
     user.status = "disabled"
-    user.disabled_reason = "left"
     user.disabled_at = now
+    user.disabled_reason = "left"
 
-    # Revoke all SSO sessions
-    db.query(SsoSession).filter(
-        SsoSession.user_id == user.id,
-        SsoSession.revoked_at.is_(None)
-    ).update({"revoked_at": now})
-
-    # Revoke all refresh tokens
-    db.query(RefreshToken).filter(
-        RefreshToken.user_id == user.id,
-        RefreshToken.revoked_at.is_(None)
-    ).update({"revoked_at": now})
-
+    rev_sessions = (
+        db.query(SsoSession).filter(SsoSession.user_id == user.id, SsoSession.revoked_at.is_(None)).update({"revoked_at": now})
+    )
+    rev_tokens = (
+        db.query(RefreshToken).filter(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)).update({"revoked_at": now})
+    )
     db.commit()
 
     log_audit(
@@ -208,521 +165,178 @@ def mark_user_left(
         action="user_marked_left",
         actor_id=admin.id,
         target_id=user.id,
-        detail={"user_email": user.email}
+        detail={"revoked_sessions": rev_sessions, "revoked_tokens": rev_tokens},
     )
 
-    # Dispatch status update email to student
-    send_marked_as_left_email(to_email=user.email, name=user.name, background=True)
-
-    # Send 48-hour recovery/purge notice email with renew link
-    base_origin = resolve_frontend_origin(request)
-    renew_url = f"{base_origin}/renew?email={user.email}"
-    try:
-        send_mark_as_left_email(user.email, user.name, renew_url)
-    except Exception:
-        pass
-
+    origin = resolve_frontend_origin(request)
+    send_mark_as_left_email(to_email=user.email, name=user.name, renew_url=f"{origin}/renew?email={user.email}", background=True)
     return {
         "status": "ok",
-        "message": f"User {user.email} marked as left. All active sessions and tokens revoked. 48-hour purge window initialized."
+        "message": f"User {user.email} marked as left and signed out of all products. 48-hour purge window initialized.",
+        "revoked_sessions": rev_sessions,
+        "revoked_tokens": rev_tokens,
     }
+
 
 @router.post("/users/{user_id}/disable")
 def disable_user(
     user_id: str,
-    payload: DisableRequest,
+    payload: DisableRequest = DisableRequest(),
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """Disable user account and revoke sessions."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "User not found"}
-        )
-
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": "User not found"})
     if user.role == "admin":
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "cannot_remove_admin", "message": "Administrators are protected and cannot be marked as left or removed."}
+            status_code=400,
+            detail={"error": "cannot_remove_admin", "message": "Administrator accounts cannot be disabled."},
         )
 
     now = datetime.utcnow()
     user.status = "disabled"
-    user.disabled_reason = payload.reason
     user.disabled_at = now
-
-    db.query(SsoSession).filter(
-        SsoSession.user_id == user.id,
-        SsoSession.revoked_at.is_(None)
-    ).update({"revoked_at": now})
-
-    db.query(RefreshToken).filter(
-        RefreshToken.user_id == user.id,
-        RefreshToken.revoked_at.is_(None)
-    ).update({"revoked_at": now})
-
+    user.disabled_reason = payload.reason
+    db.query(SsoSession).filter(SsoSession.user_id == user.id, SsoSession.revoked_at.is_(None)).update({"revoked_at": now})
+    db.query(RefreshToken).filter(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)).update({"revoked_at": now})
     db.commit()
 
-    log_audit(
-        db,
-        action="access_denied",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"reason": payload.reason, "disabled_by_admin": True}
-    )
-
+    log_audit(db, action="user_disabled_auto", actor_id=admin.id, target_id=user.id, detail={"reason": payload.reason})
     return {"status": "ok", "message": f"User {user.email} disabled"}
 
+
 @router.post("/users/{user_id}/enable")
-def enable_user(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Re-enable a disabled user account."""
+def enable_user(user_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "User not found"}
-        )
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": "User not found"})
+    if user.status == "deleted":
+        raise HTTPException(status_code=400, detail={"error": "cannot_enable", "message": "Account has been permanently deleted"})
 
     user.status = "active"
-    user.disabled_reason = None
     user.disabled_at = None
+    user.disabled_reason = None
+    user.last_active_at = datetime.utcnow()
     db.commit()
 
-    log_audit(
-        db,
-        action="user_enabled",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"user_email": user.email}
-    )
-
+    log_audit(db, action="user_enabled", actor_id=admin.id, target_id=user.id)
     return {"status": "ok", "message": f"User {user.email} re-enabled"}
 
+
 @router.post("/users/{user_id}/delete-request")
-def delete_request(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """FR3: Request deletion. Allowed only if user is already disabled."""
+def delete_request(user_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "User not found"}
-        )
-
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": "User not found"})
     if user.role == "admin":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "cannot_delete_admin", "message": "Administrator accounts are protected and cannot be deleted."}
-        )
-
+        raise HTTPException(status_code=400, detail={"error": "cannot_delete_admin", "message": "Admin accounts cannot be deleted."})
     if user.status != "disabled":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "account_not_disabled", "message": "Account must be disabled before requesting deletion"}
-        )
+        raise HTTPException(status_code=400, detail={"error": "account_not_disabled", "message": "Account must be disabled first"})
 
-    log_audit(
-        db,
-        action="delete_requested",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"user_email": user.email}
-    )
+    log_audit(db, action="delete_requested", actor_id=admin.id, target_id=user.id, detail={"user_email": user.email})
+    return {"status": "ok", "message": f"Deletion requested for {user.email}. Requires 30-day waiting period from disabled date."}
 
-    return {
-        "status": "ok",
-        "message": f"Deletion requested for {user.email}. Requires 30-day waiting period from disabled date."
-    }
 
 @router.post("/users/{user_id}/delete-approve")
-def delete_approve(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    FR3: Approve deletion. Needs: account already disabled, 30 days passed, and admin approval.
-    """
+def delete_approve(user_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "User not found"}
-        )
-
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": "User not found"})
     if user.role == "admin":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "cannot_delete_admin", "message": "Administrator accounts are protected and cannot be deleted."}
-        )
-
+        raise HTTPException(status_code=400, detail={"error": "cannot_delete_admin", "message": "Admin accounts cannot be deleted."})
     if user.status != "disabled" or not user.disabled_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "not_eligible", "message": "Account must be in disabled status to approve deletion"}
-        )
+        raise HTTPException(status_code=400, detail={"error": "not_eligible", "message": "Account must be disabled to approve deletion"})
 
-    # Check 30-day requirement
     days_disabled = (datetime.utcnow() - user.disabled_at).days
     if days_disabled < 30:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "waiting_period_active",
-                "message": f"Must wait 30 days after account was disabled. Current: {days_disabled} days."
-            }
+            status_code=400,
+            detail={"error": "waiting_period_active", "message": f"Must wait 30 days after disabled. Current: {days_disabled} days."},
         )
 
     user.status = "deleted"
     db.commit()
-
-    # Prepare personal data export takeout prior to deletion and dispatch notice
-    user_data = {
-        "name": user.name,
-        "email": user.email,
-        "phone": user.phone,
-        "created_at": user.created_at,
-        "disabled_at": user.disabled_at,
-        "disabled_reason": user.disabled_reason or "admin_deleted",
-    }
-    try:
-        send_final_purge_takeout_email(user.email, user_data, background=True)
-    except Exception:
-        pass
-
-    log_audit(
-        db,
-        action="delete_approved",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"user_email": user.email, "days_disabled": days_disabled}
-    )
-
+    log_audit(db, action="delete_approved", actor_id=admin.id, target_id=user.id, detail={"user_email": user.email, "days_disabled": days_disabled})
     return {"status": "ok", "message": f"Account {user.email} permanently marked as deleted"}
 
-@router.post("/products")
-def register_product(
-    payload: CreateProductRequest,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """FR6: Product registration. Returns client_id and client_secret (shown once)."""
-    client_id = f"prod_{uuid.uuid4().hex[:12]}"
-    raw_secret = f"sec_{generate_random_token(32)}"
-    secret_h = hash_token(raw_secret)
 
+@router.post("/products")
+def register_product(payload: CreateProductRequest, db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
+    client_id = f"app_{generate_random_token(8)}"
+    raw_secret = f"sec_{generate_random_token(24)}"
     product = Product(
-        name=payload.name,
+        name=payload.name.strip(),
         client_id=client_id,
-        client_secret_hash=secret_h,
-        redirect_uri=payload.redirect_uri
+        client_secret_hash=hash_token(raw_secret),
+        redirect_uri=payload.redirect_uri.strip(),
+        allowed_origins=payload.allowed_origins,
+        api_only=payload.api_only,
     )
     db.add(product)
     db.commit()
     db.refresh(product)
 
-    log_audit(
-        db,
-        action="product_registered",
-        actor_id=admin.id,
-        target_id=product.id,
-        detail={"product_name": product.name, "client_id": client_id}
-    )
-
+    log_audit(db, action="product_registered", actor_id=admin.id, target_id=product.id, detail={"name": product.name, "client_id": product.client_id})
     return {
-        "status": "ok",
-        "product_id": product.id,
+        "id": product.id,
         "name": product.name,
-        "client_id": client_id,
+        "client_id": product.client_id,
         "client_secret": raw_secret,
-        "redirect_uri": product.redirect_uri
+        "redirect_uri": product.redirect_uri,
+        "message": "Save this client_secret securely; it will not be shown again.",
     }
+
+
+@router.get("/products")
+def list_products(db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "client_id": p.client_id,
+            "redirect_uri": p.redirect_uri,
+            "allowed_origins": p.allowed_origins,
+            "api_only": bool(p.api_only),
+        }
+        for p in db.query(Product).all()
+    ]
+
 
 @router.get("/audit")
 def get_audit_log(
-    limit: int = Query(50, ge=1, le=500),
+    action: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """FR7: Newest first audit log entries with IST timestamps."""
-    entries = db.query(AuditLog).order_by(AuditLog.at.desc()).limit(limit).all()
+    query = db.query(AuditLog)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    logs = query.order_by(AuditLog.at.desc()).offset(offset).limit(limit).all()
     return [
         {
-            "id": e.id,
-            "at": (e.at.isoformat() + "Z") if not e.at.isoformat().endswith("Z") else e.at.isoformat(),
-            "at_ist": to_ist_str(e.at),
-            "actor_id": e.actor_id,
-            "action": e.action,
-            "target_id": e.target_id,
-            "detail": e.detail
+            "id": entry.id,
+            "at": entry.at.isoformat(),
+            "at_ist": to_ist_str(entry.at),
+            "actor_id": entry.actor_id,
+            "action": entry.action,
+            "target_id": entry.target_id,
+            "detail": entry.detail,
         }
-        for e in entries
+        for entry in logs
     ]
 
+
 @router.post("/cleanup/run")
-def trigger_cleanup(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Run the cleanup job on demand (e.g. for demo)."""
-    result = run_cleanup_job(db)
-    return result
+def manual_cleanup_trigger(db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
+    summary = run_cleanup_job(db)
+    return {**summary, "status": "ok", "summary": summary}
 
-# ==============================================================================
-# e-KYC & Membership Application Approval Desk
-# ==============================================================================
-
-@router.get("/applications")
-def list_pending_applications(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    List all membership applications currently in 'pending_approval' status.
-    Allows administrators to review captured face portraits and supporting documents.
-    """
-    pending_users = db.query(User).filter(
-        User.status == "pending_approval"
-    ).order_by(User.created_at.desc()).all()
-
-    results = []
-    for u in pending_users:
-        doc_filename = None
-        doc_data_url = None
-        if u.document_path and os.path.exists(u.document_path):
-            doc_filename = os.path.basename(u.document_path)
-            # Remove UUID prefix for clean user-facing display
-            if "_" in doc_filename:
-                doc_filename = doc_filename.split("_", 1)[1]
-            try:
-                ext = os.path.splitext(u.document_path)[1].lower()
-                mime = "application/pdf" if ext == ".pdf" else "image/jpeg"
-                if ext == ".png":
-                    mime = "image/png"
-                with open(u.document_path, "rb") as f:
-                    doc_data_url = f"data:{mime};base64,{base64.b64encode(f.read()).decode('utf-8')}"
-            except Exception:
-                pass
-
-        face_data_url = None
-        if u.face_photo_path and os.path.exists(u.face_photo_path):
-            try:
-                with open(u.face_photo_path, "rb") as f:
-                    face_data_url = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
-            except Exception:
-                pass
-
-        results.append({
-            "id": u.id,
-            "name": u.name,
-            "email": u.email,
-            "phone": u.phone,
-            "role": u.role,
-            "term_end": u.term_end.isoformat() if u.term_end else None,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-            "has_face_photo": bool(u.face_photo_path and os.path.exists(u.face_photo_path)),
-            "face_data_url": face_data_url,
-            "has_document": bool(u.document_path and os.path.exists(u.document_path)),
-            "document_data_url": doc_data_url,
-            "document_name": doc_filename,
-            "face_url": f"/admin/files/face/{u.id}",
-            "document_url": f"/admin/files/document/{u.id}"
-        })
-
-    return results
-
-@router.post("/applications/{user_id}/approve")
-def approve_application(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    Approve an e-KYC membership application.
-    Transitions account to 'active' status and activates biometric face identity verification.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "Applicant record not found"}
-        )
-
-    if user.status != "pending_approval":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "not_pending", "message": f"User is not pending approval (status: {user.status})"}
-        )
-
-    now = datetime.utcnow()
-
-    # Option 3 (DPDP Act): Ensure 128-D vector is extracted, then immediately destroy physical files from disk
-    if not user.face_embedding and user.face_photo_path and os.path.exists(user.face_photo_path):
-        try:
-            emb = extract_face_embedding(user.face_photo_path)
-            if emb:
-                user.face_embedding = emb
-        except Exception:
-            pass
-
-    purged_files = []
-    # 1. Permanently delete student ID supporting document from disk
-    if user.document_path and os.path.exists(user.document_path):
-        try:
-            os.remove(user.document_path)
-            purged_files.append("document")
-        except Exception:
-            pass
-        user.document_path = None
-
-    # 2. Permanently delete captured face photo from disk (embedding is retained)
-    if user.face_photo_path and os.path.exists(user.face_photo_path):
-        try:
-            os.remove(user.face_photo_path)
-            purged_files.append("face_photo")
-        except Exception:
-            pass
-        user.face_photo_path = None
-
-    user.status = "active"
-    user.approved_at = now
-    user.approved_by = admin.id
-    user.last_active_at = now
-    db.commit()
-
-    log_audit(
-        db,
-        action="application_approved",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={
-            "applicant_email": user.email,
-            "applicant_name": user.name,
-            "purged_files": purged_files,
-            "privacy_compliance": "DPDP_2023_immediate_erasure"
-        }
-    )
-
-    # Dispatch approval welcome email to student
-    send_application_approved_email(to_email=user.email, name=user.name, background=True)
-
-    return {
-        "status": "ok",
-        "message": f"Application for {user.name} ({user.email}) has been approved. The member can now log in.",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "status": user.status,
-            "purged_files": purged_files
-        }
-    }
-
-@router.post("/applications/{user_id}/reject")
-def reject_application(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    Reject an e-KYC membership application.
-    Transitions account to 'disabled' and immediately purges all submitted identity documents.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_not_found", "message": "Applicant record not found"}
-        )
-
-    # Immediately purge supporting document and photo from disk
-    if user.document_path and os.path.exists(user.document_path):
-        try:
-            os.remove(user.document_path)
-        except Exception:
-            pass
-        user.document_path = None
-
-    if user.face_photo_path and os.path.exists(user.face_photo_path):
-        try:
-            os.remove(user.face_photo_path)
-        except Exception:
-            pass
-        user.face_photo_path = None
-
-    now = datetime.utcnow()
-    user.status = "disabled"
-    user.disabled_reason = "application_rejected"
-    user.disabled_at = now
-    db.commit()
-
-    log_audit(
-        db,
-        action="application_rejected",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"applicant_email": user.email, "applicant_name": user.name, "privacy_compliance": "purged_on_rejection"}
-    )
-
-    # Dispatch rejection privacy notification to student
-    send_application_rejected_email(to_email=user.email, name=user.name, background=True)
-
-    return {
-        "status": "ok",
-        "message": f"Application for {user.name} ({user.email}) has been rejected and documents purged."
-    }
-
-@router.get("/files/face/{user_id}")
-def get_applicant_face_photo(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Serve applicant captured face portrait for admin preview."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user or not user.face_photo_path or not os.path.exists(user.face_photo_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Face portrait not found")
-    return FileResponse(user.face_photo_path, media_type="image/jpeg")
-
-@router.get("/files/document/{user_id}")
-def get_applicant_document(
-    user_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Serve applicant supporting document for admin preview."""
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user or not user.document_path or not os.path.exists(user.document_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found")
-    
-    # Infer content type
-    ext = os.path.splitext(user.document_path)[1].lower()
-    media_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
-    if ext == ".png":
-        media_type = "image/png"
-
-    return FileResponse(user.document_path, media_type=media_type)
-
-# ==============================================================================
-# 48-Hour Accidental Revocation & Expiration Renewal Desk
-# ==============================================================================
 
 @router.get("/renewals")
-def list_renewal_requests(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    List all membership renewal requests with dynamic 48-hour purge countdown timers.
-    """
+def list_renewal_requests(db: Session = Depends(get_db), admin: User = Depends(require_admin_user)):
     requests = db.query(RenewalRequest).order_by(RenewalRequest.created_at.desc()).all()
     now = datetime.utcnow()
     results = []
@@ -732,49 +346,40 @@ def list_renewal_requests(
         if user and user.disabled_at:
             elapsed = (now - user.disabled_at).total_seconds() / 3600.0
             hours_left = max(0.0, round(PURGE_GRACE_HOURS - elapsed, 1))
-
-        results.append({
-            "id": r.id,
-            "user_id": r.user_id,
-            "email": r.email,
-            "name": r.name,
-            "reason": r.reason,
-            "status": r.status,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "created_at_ist": to_ist_str(r.created_at) if r.created_at else None,
-            "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
-            "admin_notes": r.admin_notes,
-            "user_status": user.status if user else "purged",
-            "disabled_at": user.disabled_at.isoformat() if user and user.disabled_at else None,
-            "disabled_reason": user.disabled_reason if user else None,
-            "hours_left": hours_left
-        })
+        results.append(
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "email": r.email,
+                "name": r.name,
+                "reason": r.reason,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "created_at_ist": to_ist_str(r.created_at) if r.created_at else None,
+                "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+                "admin_notes": r.admin_notes,
+                "user_status": user.status if user else "purged",
+                "disabled_at": user.disabled_at.isoformat() if user and user.disabled_at else None,
+                "disabled_reason": user.disabled_reason if user else None,
+                "hours_left": hours_left,
+            }
+        )
     return results
+
 
 @router.post("/renewals/{request_id}/approve")
 def approve_renewal_request(
     request_id: str,
     payload: Optional[RenewalActionRequest] = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """
-    Approve a renewal request: Reactivate user account and cancel 48h purge countdown.
-    Sends confirmation email to user.
-    """
     req = db.query(RenewalRequest).filter(RenewalRequest.id == request_id).first()
     if not req:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": "Renewal request not found"}
-        )
-
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": "Renewal request not found"})
     user = db.query(User).filter(User.id == req.user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "user_purged", "message": "User has already been purged from database"}
-        )
+        raise HTTPException(status_code=404, detail={"error": "user_purged", "message": "User already purged"})
 
     now = datetime.utcnow()
     req.status = "approved"
@@ -783,52 +388,27 @@ def approve_renewal_request(
     if payload and payload.notes:
         req.admin_notes = payload.notes
 
-    # Reactivate user account
     user.status = "active"
     user.disabled_at = None
     user.disabled_reason = None
     user.last_active_at = now
     db.commit()
 
-    log_audit(
-        db,
-        action="renewal_approved",
-        actor_id=admin.id,
-        target_id=user.id,
-        detail={"email": user.email, "request_id": req.id}
-    )
+    log_audit(db, action="renewal_approved", actor_id=admin.id, target_id=user.id, detail={"email": user.email, "request_id": req.id})
+    send_renewal_status_email(user.email, user.name, "approved", req.admin_notes, background=True)
+    return {"status": "ok", "message": f"Renewal approved for {user.name}.", "user": {"id": user.id, "email": user.email, "status": user.status}}
 
-    try:
-        send_renewal_status_email(user.email, user.name, "approved", req.admin_notes)
-    except Exception:
-        pass
-
-    return {
-        "status": "ok",
-        "message": f"Renewal approved for {user.name} ({user.email}). Account access is restored.",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "status": user.status
-        }
-    }
 
 @router.post("/renewals/{request_id}/decline")
 def decline_renewal_request(
     request_id: str,
     payload: Optional[RenewalActionRequest] = None,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
+    admin: User = Depends(require_admin_user),
 ):
-    """
-    Decline a renewal request: Marks request as declined and informs user via email.
-    """
     req = db.query(RenewalRequest).filter(RenewalRequest.id == request_id).first()
     if not req:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "not_found", "message": "Renewal request not found"}
-        )
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": "Renewal request not found"})
 
     now = datetime.utcnow()
     req.status = "declined"
@@ -840,314 +420,6 @@ def decline_renewal_request(
 
     user = db.query(User).filter(User.id == req.user_id).first()
     if user:
-        log_audit(
-            db,
-            action="renewal_declined",
-            actor_id=admin.id,
-            target_id=user.id,
-            detail={"email": user.email, "request_id": req.id}
-        )
-        try:
-            send_renewal_status_email(user.email, user.name, "declined", req.admin_notes)
-        except Exception:
-            pass
-
-    return {
-        "status": "ok",
-        "message": f"Renewal request for {req.email} has been declined."
-    }
-
-@router.get("/face-profiles")
-def get_admin_face_profiles(
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """List enrolled administrator face profiles and restriction status."""
-    faces = admin.admin_faces if isinstance(admin.admin_faces, list) else []
-    valid_faces = [f for f in faces if isinstance(f, dict) and f.get("embedding")]
-
-    # Consistency rule: If no face profiles are enrolled, require_face_match CANNOT be True
-    if len(valid_faces) == 0 and admin.require_face_match:
-        admin.require_face_match = False
-        db.commit()
-        db.refresh(admin)
-
-    return {
-        "require_face_match": bool(admin.require_face_match and len(valid_faces) > 0),
-        "faces": [
-            {
-                "id": f.get("id"),
-                "label": f.get("label", "Admin Profile"),
-                "photo_url": f"/admin/files/face-profile/{f.get('id')}",
-                "created_at": f.get("created_at")
-            }
-            for f in valid_faces
-        ]
-    }
-
-@router.post("/face-profiles")
-def add_admin_face_profile(
-    payload: AddAdminFaceRequest,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Enroll a new authorized administrator face profile with 128D embedding vector."""
-    if not payload.face_photo:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "missing_photo", "message": "Face photo is required"})
-
-    embedding = extract_face_embedding(payload.face_photo)
-    if embedding is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "face_not_detected",
-                "message": "Could not detect a clear human face in the photo. Please ensure face is well-lit and centered."
-            }
-        )
-
-    face_id = str(uuid.uuid4())
-    face_filename = f"admin_{face_id}.jpg"
-    face_path = FACES_DIR / face_filename
-
-    try:
-        if "," in payload.face_photo:
-            _, raw_b64 = payload.face_photo.split(",", 1)
-        else:
-            raw_b64 = payload.face_photo
-        with open(face_path, "wb") as f:
-            f.write(base64.b64decode(raw_b64))
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_photo", "message": "Failed to decode the face image."}
-        )
-
-    new_profile = {
-        "id": face_id,
-        "label": payload.label.strip() or "Admin Face",
-        "embedding": embedding,
-        "photo_filename": face_filename,
-        "created_at": datetime.utcnow().isoformat() + "Z"
-    }
-
-    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
-    current_faces.append(new_profile)
-    admin.admin_faces = current_faces
-    if not admin.face_embedding:
-        admin.face_embedding = embedding
-    
-    # Automatically enable face match restriction upon enrolling face
-    admin.require_face_match = True
-
-    db.commit()
-    db.refresh(admin)
-
-    log_audit(
-        db,
-        action="admin_face_enrolled",
-        actor_id=admin.id,
-        target_id=admin.id,
-        detail={"face_id": face_id, "label": new_profile["label"]}
-    )
-
-    return {
-        "status": "ok",
-        "message": f"Authorized face profile '{new_profile['label']}' enrolled successfully.",
-        "face": {
-            "id": face_id,
-            "label": new_profile["label"],
-            "photo_url": f"/admin/files/face-profile/{face_id}",
-            "created_at": new_profile["created_at"]
-        },
-        "require_face_match": admin.require_face_match
-    }
-
-@router.delete("/face-profiles/{face_id}")
-def delete_admin_face_profile(
-    face_id: str,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Remove an enrolled administrator face profile."""
-    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
-    
-    # Remove associated face photo file from disk
-    deleted_face = next((f for f in current_faces if isinstance(f, dict) and f.get("id") == face_id), None)
-    if deleted_face and deleted_face.get("photo_filename"):
-        photo_file = FACES_DIR / deleted_face["photo_filename"]
-        if photo_file.exists():
-            try:
-                photo_file.unlink()
-            except Exception:
-                pass
-
-    updated_faces = [f for f in current_faces if isinstance(f, dict) and f.get("id") != face_id]
-    
-    admin.admin_faces = updated_faces
-    if not updated_faces:
-        admin.require_face_match = False
-        admin.face_embedding = None
-    elif admin.face_embedding and not any(f.get("embedding") == admin.face_embedding for f in updated_faces):
-        admin.face_embedding = updated_faces[0].get("embedding")
-
-    db.commit()
-    db.refresh(admin)
-
-    log_audit(
-        db,
-        action="admin_face_deleted",
-        actor_id=admin.id,
-        target_id=admin.id,
-        detail={"face_id": face_id}
-    )
-
-    return {
-        "status": "ok",
-        "message": "Authorized face profile removed.",
-        "require_face_match": admin.require_face_match
-    }
-
-@router.post("/face-profiles/toggle-restriction")
-def toggle_admin_face_restriction(
-    payload: ToggleRestrictionRequest,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """Enable or disable biometric face lock requirement for admin sign-in."""
-    current_faces = list(admin.admin_faces) if isinstance(admin.admin_faces, list) else []
-    valid_faces = [f for f in current_faces if isinstance(f, dict) and f.get("embedding")]
-
-    # Strict Gate: Administrator MUST enroll at least one face profile before enforcing lock
-    if payload.enforce and len(valid_faces) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "no_face_enrolled",
-                "message": "Cannot enforce biometric face lock without enrolling at least one authorized administrator face profile. Please enroll your face below first."
-            }
-        )
-
-    # Privileged Gate: Disabling Biometric Face Lock requires 2FA OTP verification
-    if not payload.enforce and admin.require_face_match:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "2fa_required",
-                "message": "Disabling Biometric Face Lock requires 2-Step Email Verification. Please complete the OTP check sent to your administrator email."
-            }
-        )
-
-    admin.require_face_match = payload.enforce
-    db.commit()
-    db.refresh(admin)
-
-    log_audit(
-        db,
-        action="admin_face_restriction_toggled",
-        actor_id=admin.id,
-        target_id=admin.id,
-        detail={"require_face_match": admin.require_face_match}
-    )
-
-    return {
-        "status": "ok",
-        "require_face_match": admin.require_face_match,
-        "message": f"Biometric face lock {'enforced' if admin.require_face_match else 'disabled'} for administrator logins."
-    }
-
-@router.post("/face-profiles/request-disable-otp")
-def request_disable_face_lock_otp(
-    admin: User = Depends(require_admin_user)
-):
-    """
-    Generate and dispatch a single-use 6-digit OTP code to the administrator's email
-    required to authorize disabling Biometric Face Lock (Privileged 2FA Gate).
-    """
-    target_email = admin.email or "teamsankalp60@gmail.com"
-    otp_code = f"{secrets.randbelow(900000) + 100000}"
-    expires_at = datetime.utcnow() + timedelta(minutes=5)
-
-    _DISABLE_LOCK_OTP_VAULT[admin.id] = {
-        "otp": otp_code,
-        "expires_at": expires_at,
-        "email": target_email
-    }
-
-    try:
-        send_disable_face_lock_otp_email(
-            to_email=target_email,
-            admin_name=admin.name or "Administrator",
-            otp_code=otp_code
-        )
-    except Exception as e:
-        pass
-
-    # Fail-safe terminal logging for instant presentation backup
-    print(f"\n[PRIVILEGED 2FA OTP] Disabling Biometric Face Lock code for {target_email}: {otp_code} (Valid for 5m)\n", flush=True)
-
-    return {
-        "status": "ok",
-        "message": f"Verification code dispatched to {target_email}",
-        "email": target_email,
-        "expires_in_seconds": 300
-    }
-
-@router.post("/face-profiles/verify-disable-otp")
-def verify_disable_face_lock_otp(
-    payload: VerifyDisableOtpRequest,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin_user)
-):
-    """
-    Verify the 6-digit OTP and disable Biometric Face Lock upon successful verification.
-    """
-    record = _DISABLE_LOCK_OTP_VAULT.get(admin.id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "no_active_otp", "message": "No active verification code found. Please request a new code."}
-        )
-
-    if datetime.utcnow() > record["expires_at"]:
-        _DISABLE_LOCK_OTP_VAULT.pop(admin.id, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "otp_expired", "message": "Verification code has expired. Please request a new code."}
-        )
-
-    if record["otp"].strip() != payload.otp.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_otp", "message": "Invalid verification code. Please check your email and try again."}
-        )
-
-    # Valid OTP verified -> Disable biometric lock
-    _DISABLE_LOCK_OTP_VAULT.pop(admin.id, None)
-    admin.require_face_match = False
-    db.commit()
-    db.refresh(admin)
-
-    log_audit(
-        db,
-        action="admin_face_restriction_toggled",
-        actor_id=admin.id,
-        target_id=admin.id,
-        detail={"require_face_match": False, "method": "email_2fa_otp"}
-    )
-
-    return {
-        "status": "ok",
-        "require_face_match": False,
-        "message": "Biometric face lock disabled successfully via 2-Step Verification."
-    }
-
-@router.get("/files/face-profile/{face_id}")
-def get_admin_face_photo(
-    face_id: str,
-    admin: User = Depends(require_admin_user)
-):
-    """Serve enrolled administrator profile snapshot."""
-    file_path = FACES_DIR / f"admin_{face_id}.jpg"
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Face portrait not found")
-    return FileResponse(file_path, media_type="image/jpeg")
+        log_audit(db, action="renewal_declined", actor_id=admin.id, target_id=user.id, detail={"email": user.email, "request_id": req.id})
+        send_renewal_status_email(user.email, user.name, "declined", req.admin_notes, background=True)
+    return {"status": "ok", "message": "Renewal request declined."}

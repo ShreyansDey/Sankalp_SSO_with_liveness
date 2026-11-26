@@ -1,247 +1,222 @@
-import os
-from datetime import datetime, date, timedelta
-from typing import Dict, Any
+import logging
+from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
-from app.models import User, SsoSession, RefreshToken, AuditLog, RenewalRequest
 from app.audit import log_audit
-from app.config import INACTIVITY_DAYS, PURGE_GRACE_HOURS, FRONTEND_ORIGIN
+from app.config import FRONTEND_ORIGIN, INACTIVITY_DAYS, ORG_NAME, PURGE_GRACE_HOURS
+from app.database import SessionLocal
+from app.models import AuditLog, RefreshToken, RenewalRequest, SsoSession, User
 from app.services.email_service import (
-    send_account_expired_email,
-    send_expiry_warning_email,
     send_expired_email,
-    send_final_purge_takeout_email
+    send_expiry_warning_email,
+    send_final_purge_takeout_email,
 )
+from app.services.storage_service import erase_user_files
 
-def run_cleanup_job(db: Session) -> Dict[str, Any]:
+logger = logging.getLogger("sankalp.cleanup")
+
+
+def run_cleanup_job(db: Session | None = None) -> dict:
     """
-    M6/FR2: Runs automatic cleanup and 48-hour permanent purge.
+    Automatic lifecycle remediation & DPDP data reduction janitor:
+    1) Advance 3-day expiry warning emails (once per user).
+    2) Disable users past term_end (single consolidated notification, atomic session revocation).
+    3) Disable inactive users past INACTIVITY_DAYS.
+    4) Permanently hard-purge disabled accounts past PURGE_GRACE_HOURS (unless renewed AFTER disable)
+       with file unlinking, takeout export email, and anonymized audit trail.
     """
-    now = datetime.utcnow()
-    today = date.today()
-    inactivity_threshold = now - timedelta(days=INACTIVITY_DAYS)
-    purge_threshold = now - timedelta(hours=PURGE_GRACE_HOURS)
+    owns_db = False
+    if db is None:
+        db = SessionLocal()
+        owns_db = True
 
-    disabled_users = []
-    purged_users = []
+    try:
+        today = date.today()
+        now = datetime.utcnow()
+        inactivity_cutoff = now - timedelta(days=INACTIVITY_DAYS)
+        purge_cutoff = now - timedelta(hours=PURGE_GRACE_HOURS)
+        warn_cutoff = today + timedelta(days=3)
 
-    # 1. Check expired term end
-    expired_term_users = db.query(User).filter(
-        User.status == "active",
-        User.term_end.is_not(None),
-        User.term_end < today
-    ).all()
+        warned_count = 0
+        disabled_term = 0
+        disabled_inactive = 0
+        purged_count = 0
+        purged_users = []
+        revoked_sessions = 0
+        revoked_tokens = 0
+        unlinked_files = 0
 
-    for user in expired_term_users:
-        user.status = "disabled"
-        user.disabled_reason = "term_end"
-        user.disabled_at = now
+        active_users = db.query(User).filter(User.status == "active").all()
+        for u in active_users:
+            if u.term_end and today < u.term_end <= warn_cutoff:
+                already_warned = (
+                    db.query(AuditLog)
+                    .filter(AuditLog.action == "expiry_warning_sent", AuditLog.target_id == u.id)
+                    .first()
+                )
+                if not already_warned:
+                    days_left = (u.term_end - today).days
+                    send_expiry_warning_email(
+                        to_email=u.email,
+                        name=u.name,
+                        term_end_str=u.term_end.isoformat(),
+                        days_left=days_left,
+                        org_name=ORG_NAME or "Jadavpur University Societies",
+                        role=u.role.capitalize(),
+                        background=True,
+                    )
+                    log_audit(
+                        db,
+                        action="expiry_warning_sent",
+                        actor_id="system",
+                        target_id=u.id,
+                        detail={"term_end": u.term_end.isoformat(), "days_left": days_left},
+                    )
+                    warned_count += 1
 
-        # Revoke SSO sessions
-        db.query(SsoSession).filter(
-            SsoSession.user_id == user.id,
-            SsoSession.revoked_at.is_(None)
-        ).update({"revoked_at": now})
+            if u.term_end and u.term_end < today:
+                u.status = "disabled"
+                u.disabled_at = now
+                u.disabled_reason = "term_end"
+                revoked_sessions += (
+                    db.query(SsoSession)
+                    .filter(SsoSession.user_id == u.id, SsoSession.revoked_at.is_(None))
+                    .update({"revoked_at": now})
+                )
+                revoked_tokens += (
+                    db.query(RefreshToken)
+                    .filter(RefreshToken.user_id == u.id, RefreshToken.revoked_at.is_(None))
+                    .update({"revoked_at": now})
+                )
+                db.commit()
+                log_audit(
+                    db,
+                    action="user_disabled_auto",
+                    actor_id="system",
+                    target_id=u.id,
+                    detail={"reason": "term_end", "term_end": u.term_end.isoformat()},
+                )
+                send_expired_email(
+                    to_email=u.email,
+                    name=u.name,
+                    renew_url=f"{FRONTEND_ORIGIN}/renew?email={u.email}",
+                    reason="term_end",
+                    background=True,
+                )
+                disabled_term += 1
+                continue
 
-        # Revoke refresh tokens
-        db.query(RefreshToken).filter(
-            RefreshToken.user_id == user.id,
-            RefreshToken.revoked_at.is_(None)
-        ).update({"revoked_at": now})
+            if u.role != "admin":
+                ref_time = u.last_active_at or u.created_at
+                if ref_time and ref_time < inactivity_cutoff:
+                    u.status = "disabled"
+                    u.disabled_at = now
+                    u.disabled_reason = "inactive"
+                    revoked_sessions += (
+                        db.query(SsoSession)
+                        .filter(SsoSession.user_id == u.id, SsoSession.revoked_at.is_(None))
+                        .update({"revoked_at": now})
+                    )
+                    revoked_tokens += (
+                        db.query(RefreshToken)
+                        .filter(RefreshToken.user_id == u.id, RefreshToken.revoked_at.is_(None))
+                        .update({"revoked_at": now})
+                    )
+                    db.commit()
+                    log_audit(
+                        db,
+                        action="user_disabled_auto",
+                        actor_id="system",
+                        target_id=u.id,
+                        detail={"reason": "inactive", "last_active_at": ref_time.isoformat()},
+                    )
+                    send_expired_email(
+                        to_email=u.email,
+                        name=u.name,
+                        renew_url=f"{FRONTEND_ORIGIN}/renew?email={u.email}",
+                        reason="inactive",
+                        background=True,
+                    )
+                    disabled_inactive += 1
 
-        log_audit(
-            db,
-            action="user_disabled_auto",
-            actor_id="system_cleanup_job",
-            target_id=user.id,
-            detail={"reason": "term_end", "term_end": str(user.term_end)}
-        )
-
-        # Dispatch access concluded email to student
-        send_account_expired_email(
-            to_email=user.email,
-            name=user.name,
-            reason="term_end",
-            background=True
-        )
-        renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
-        try:
-            send_expired_email(user.email, user.name, renew_url, reason="term_end")
-        except Exception:
-            pass
-
-        disabled_users.append({
-            "id": user.id,
-            "email": user.email,
-            "reason": "term_end"
-        })
-
-    # 2. Check inactivity
-    inactive_users = db.query(User).filter(
-        User.status == "active",
-        User.created_at < inactivity_threshold,
-        (User.last_active_at < inactivity_threshold) | (User.last_active_at.is_(None))
-    ).all()
-
-    for user in inactive_users:
-        user.status = "disabled"
-        user.disabled_reason = "inactive"
-        user.disabled_at = now
-
-        # Revoke SSO sessions
-        db.query(SsoSession).filter(
-            SsoSession.user_id == user.id,
-            SsoSession.revoked_at.is_(None)
-        ).update({"revoked_at": now})
-
-        # Revoke refresh tokens
-        db.query(RefreshToken).filter(
-            RefreshToken.user_id == user.id,
-            RefreshToken.revoked_at.is_(None)
-        ).update({"revoked_at": now})
-
-        log_audit(
-            db,
-            action="user_disabled_auto",
-            actor_id="system_cleanup_job",
-            target_id=user.id,
-            detail={"reason": "inactive", "days_threshold": INACTIVITY_DAYS}
-        )
-
-        # Dispatch inactivity access concluded email
-        send_account_expired_email(
-            to_email=user.email,
-            name=user.name,
-            reason="inactive",
-            background=True
-        )
-        renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
-        try:
-            send_expired_email(user.email, user.name, renew_url, reason="inactive")
-        except Exception:
-            pass
-
-        disabled_users.append({
-            "id": user.id,
-            "email": user.email,
-            "reason": "inactive"
-        })
-
-    # 3. Check upcoming term expiry (48h - 72h advance courtesy reminder)
-    warning_horizon = today + timedelta(days=3)
-    upcoming_users = db.query(User).filter(
-        User.status == "active",
-        User.term_end.is_not(None),
-        User.term_end >= today,
-        User.term_end <= warning_horizon
-    ).all()
-
-    warnings_sent = 0
-    for user in upcoming_users:
-        days_left = (user.term_end - today).days
-        # Avoid spamming: only send once per 2-day period
-        recent_warning = db.query(AuditLog).filter(
-            AuditLog.target_id == user.id,
-            AuditLog.action == "expiry_warning_sent",
-            AuditLog.at >= now - timedelta(days=2)
-        ).first()
-
-        if not recent_warning:
-            send_expiry_warning_email(
-                to_email=user.email,
-                name=user.name,
-                term_end_str=str(user.term_end),
-                days_left=days_left,
-                background=True
+        # 48-hour hard purge for disabled users without an active/recent renewal override
+        purge_candidates = (
+            db.query(User)
+            .filter(
+                User.status == "disabled",
+                User.role != "admin",
+                User.disabled_at.isnot(None),
+                User.disabled_at < purge_cutoff,
             )
+            .all()
+        )
+        for u in purge_candidates:
+            has_recent_approved = (
+                db.query(RenewalRequest)
+                .filter(
+                    RenewalRequest.user_id == u.id,
+                    RenewalRequest.status == "approved",
+                    RenewalRequest.resolved_at >= u.disabled_at,
+                )
+                .first()
+            )
+            has_pending = (
+                db.query(RenewalRequest)
+                .filter(
+                    RenewalRequest.user_id == u.id,
+                    RenewalRequest.status == "pending",
+                    RenewalRequest.created_at >= u.disabled_at,
+                )
+                .first()
+            )
+            if has_recent_approved or has_pending:
+                continue
+
+            snapshot = {
+                "name": u.name,
+                "email": u.email,
+                "phone": u.phone,
+                "created_at": u.created_at,
+                "disabled_at": u.disabled_at,
+                "disabled_reason": u.disabled_reason,
+            }
+            send_final_purge_takeout_email(to_email=u.email, user_data=snapshot, background=True)
+            unlinked_files += erase_user_files(u.document_path, u.face_photo_path)
+
+            uid_copy = u.id
+            reason_copy = u.disabled_reason
+            db.delete(u)
+            db.commit()
+
             log_audit(
                 db,
-                action="expiry_warning_sent",
-                actor_id="system_cleanup_job",
-                target_id=user.id,
-                detail={"term_end": str(user.term_end), "days_left": days_left}
+                action="user_purged_permanently",
+                actor_id="system",
+                target_id=uid_copy,
+                detail={
+                    "email": snapshot["email"],
+                    "reason": reason_copy,
+                    "held_hours": PURGE_GRACE_HOURS,
+                    "takeout_dispatched": True,
+                },
             )
-            warnings_sent += 1
+            purged_count += 1
+            purged_users.append({"id": uid_copy, "email": snapshot["email"], "reason": reason_copy})
 
-    db.commit()
-
-    # 3. 48-Hour Hard Purge (Permanent Erasure)
-    # Target all disabled users whose 48-hour window has expired and have no approved renewal
-    eligible_for_purge = db.query(User).filter(
-        User.status == "disabled",
-        User.disabled_at.is_not(None),
-        User.disabled_at <= purge_threshold
-    ).all()
-
-    for u in eligible_for_purge:
-        # Check if an approved renewal exists
-        has_approved = db.query(RenewalRequest).filter(
-            RenewalRequest.user_id == u.id,
-            RenewalRequest.status == "approved"
-        ).first()
-
-        if has_approved:
-            continue
-
-        user_email = u.email
-        user_name = u.name
-        user_id = u.id
-        reason = u.disabled_reason or "disabled"
-
-        # Prepare personal data export takeout prior to hard purge
-        user_data = {
-            "name": user_name,
-            "email": user_email,
-            "phone": u.phone,
-            "created_at": u.created_at,
-            "disabled_at": u.disabled_at,
-            "disabled_reason": reason,
+        return {
+            "status": "ok",
+            "total_disabled": disabled_term + disabled_inactive,
+            "total_purged": purged_count,
+            "purged_users": purged_users,
+            "disabled_term_end": disabled_term,
+            "disabled_inactive": disabled_inactive,
+            "warnings_sent": warned_count,
+            "purged_permanently": purged_count,
+            "revoked_sessions": revoked_sessions,
+            "revoked_tokens": revoked_tokens,
+            "unlinked_files": unlinked_files,
+            "ran_at": now.isoformat(),
         }
-
-        # Send final data takeout email with complete record summary and re-registration notice
-        try:
-            send_final_purge_takeout_email(user_email, user_data, background=False)
-        except Exception:
-            pass
-
-        # Remove physical document/face upload files from disk
-        if u.face_photo_path and os.path.exists(u.face_photo_path):
-            try:
-                os.remove(u.face_photo_path)
-            except Exception:
-                pass
-
-        if u.document_path and os.path.exists(u.document_path):
-            try:
-                os.remove(u.document_path)
-            except Exception:
-                pass
-
-        # Log permanent purge to immutable audit log before deleting record
-        log_audit(
-            db,
-            action="user_purged_permanently",
-            actor_id="system_cleanup_job",
-            target_id=user_id,
-            detail={"email": user_email, "name": user_name, "reason": reason, "held_hours": PURGE_GRACE_HOURS}
-        )
-
-        # Hard delete user row (cascades to sessions, tokens, challenges, renewal_requests)
-        db.delete(u)
-        purged_users.append({
-            "id": user_id,
-            "email": user_email,
-            "reason": reason
-        })
-
-    db.commit()
-
-    return {
-        "status": "ok",
-        "processed_at": now.isoformat(),
-        "total_disabled": len(disabled_users),
-        "disabled_users": disabled_users,
-        "warnings_sent": warnings_sent,
-        "total_purged": len(purged_users),
-        "purged_users": purged_users
-    }
+    finally:
+        if owns_db:
+            db.close()

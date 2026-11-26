@@ -1,101 +1,110 @@
-import random
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models import User, LivenessChallenge, SsoSession
-from app.security import (
-    hash_token,
-    generate_liveness_code,
-    generate_random_token
-)
 from app.audit import log_audit
-from app.config import SSO_SESSION_HOURS, IS_PRODUCTION
+from app.config import (
+    IS_PRODUCTION,
+    LIVENESS_CHALLENGE_TTL_SECONDS,
+    ORG_NAME,
+    SSO_SESSION_HOURS,
+)
+from app.database import get_db
 from app.deps import get_current_session
-from app.services.email_service import send_login_alert_email
-
-router = APIRouter(prefix="/liveness", tags=["liveness"])
-
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
-FACES_DIR = UPLOAD_DIR / "faces"
-
-from app.services.face_engine import (
-    verify_live_face_against_stored,
-    verify_live_face_against_candidates,
-    extract_face_embedding,
-    is_face_engine_ready
+from app.models import LivenessChallenge, SsoSession, User
+from app.schemas.liveness import ChallengeRequest, ResultRequest
+from app.security import (
+    constant_time_compare,
+    generate_liveness_code,
+    hash_token,
+    verify_signed_ticket,
 )
 from app.services.email_service import send_login_alert_email
+from app.services.face_engine import (
+    is_face_engine_ready,
+    verify_live_face_against_candidates,
+    verify_live_face_against_stored,
+)
 
-CHALLENGE_TYPES = ["turn_left", "turn_right"]
+router = APIRouter(prefix="/liveness", tags=["Liveness"])
+CHALLENGE_TYPES = ["blink", "turn_left", "turn_right"]
 
-from app.schemas.liveness import ChallengeRequest, ResultRequest
+
+def _authorize_liveness_actor(
+    payload_user_id: str | None,
+    login_ticket: str | None,
+    session_obj: SsoSession | None,
+) -> str:
+    """Resolve and strictly authorize which user_id may run liveness via signed ticket or session."""
+    if login_ticket:
+        ticket_payload = verify_signed_ticket(login_ticket, expected_purpose="liveness")
+        if not ticket_payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"error": "invalid_login_ticket", "message": "Login verification ticket is invalid or expired"},
+            )
+        ticket_uid = ticket_payload.get("sub")
+        if payload_user_id and payload_user_id != ticket_uid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "ticket_mismatch", "message": "Verification ticket does not match user"},
+            )
+        return ticket_uid
+
+    if session_obj:
+        if payload_user_id and payload_user_id != session_obj.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "session_mismatch", "message": "Active session does not match requested user"},
+            )
+        return session_obj.user_id
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"error": "login_ticket_required", "message": "Please complete credential verification before liveness check"},
+    )
+
 
 @router.post("/challenge")
 def create_challenge(
-    payload: ChallengeRequest,
     request: Request,
+    payload: ChallengeRequest = ChallengeRequest(),
     db: Session = Depends(get_db),
-    existing_session: Optional[SsoSession] = Depends(get_current_session)
+    session_obj: SsoSession | None = Depends(get_current_session),
 ):
-    """
-    FR5/M3: Request a random liveness challenge.
-    Returns challenge id, type, one-time code, expires_in 30.
-    Rate limited to max 5 challenges per 10 minutes per user.
-    """
-    user_id = payload.user_id
-    if not user_id and existing_session:
-        user_id = existing_session.user_id
-
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "missing_user", "message": "user_id is required"}
-        )
+    """Issue a short-lived liveness challenge bound to a verified login ticket or active session."""
+    user_id = _authorize_liveness_actor(payload.user_id, payload.login_ticket, session_obj)
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user or user.status != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "account_disabled", "message": "User is not active"}
+            detail={"error": "account_disabled", "message": "User is missing or disabled"},
         )
 
-    # Rate limiting: max 5 challenges per 10 minutes
-    ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-    recent_count = db.query(LivenessChallenge).filter(
-        LivenessChallenge.user_id == user_id,
-        LivenessChallenge.expires_at > ten_minutes_ago
-    ).count()
-
-    if recent_count >= 5:
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=10)
+    recent_attempts = (
+        db.query(LivenessChallenge)
+        .filter(LivenessChallenge.user_id == user.id, LivenessChallenge.expires_at > window_start)
+        .count()
+    )
+    if recent_attempts >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"error": "rate_limited", "message": "Too many liveness challenges. Maximum 5 per 10 minutes."}
+            detail={"error": "rate_limited", "message": "Too many liveness attempts. Please wait 10 minutes."},
         )
 
-    challenge_type = random.choice(CHALLENGE_TYPES)
+    challenge_type = CHALLENGE_TYPES[int.from_bytes(generate_liveness_code().encode("utf-8")[:2], "big") % len(CHALLENGE_TYPES)]
     raw_code = generate_liveness_code()
-    code_h = hash_token(raw_code)
-    expires_at = datetime.utcnow() + timedelta(seconds=60)
-
-    # Clean up older abandoned uncompleted challenges for this user past the rate limit window
-    db.query(LivenessChallenge).filter(
-        LivenessChallenge.user_id == user_id,
-        LivenessChallenge.expires_at < ten_minutes_ago,
-        LivenessChallenge.used_at.is_(None)
-    ).delete(synchronize_session=False)
+    expires_at = now + timedelta(seconds=LIVENESS_CHALLENGE_TTL_SECONDS)
 
     challenge = LivenessChallenge(
-        user_id=user_id,
+        user_id=user.id,
         type=challenge_type,
-        code_hash=code_h,
+        code_hash=hash_token(raw_code),
         expires_at=expires_at,
-        used_at=None,
-        result=None
     )
     db.add(challenge)
     db.commit()
@@ -105,75 +114,64 @@ def create_challenge(
         "challenge_id": challenge.id,
         "type": challenge.type,
         "code": raw_code,
-        "expires_in": 30
+        "expires_in": LIVENESS_CHALLENGE_TTL_SECONDS,
     }
+
 
 @router.post("/result")
 def submit_result(
     payload: ResultRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_obj: SsoSession | None = Depends(get_current_session),
 ):
     """
-    FR5: Verify liveness challenge result.
-    Checks code is unused and not expired.
-    On pass: sets HttpOnly sso_session cookie and updates liveness_passed_at.
+    Validate active liveness proof and fail-closed biometric identity match, then create SSO session.
     """
     challenge = db.query(LivenessChallenge).filter(LivenessChallenge.id == payload.challenge_id).first()
     if not challenge:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": "challenge_not_found", "message": "Challenge not found"}
+            detail={"error": "not_found", "message": "Challenge not found"},
         )
 
-    if challenge.used_at is not None:
+    _authorize_liveness_actor(challenge.user_id, payload.login_ticket, session_obj)
+
+    if not constant_time_compare(hash_token(payload.code), challenge.code_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "challenge_used", "message": "Challenge code has already been used"}
+            detail={"error": "invalid_code", "message": "Challenge verification code is invalid"},
         )
 
-    if challenge.expires_at < datetime.utcnow():
-        challenge.used_at = datetime.utcnow()
-        challenge.result = "fail"
-        db.commit()
-        log_audit(
-            db,
-            action="liveness_fail",
-            actor_id=challenge.user_id,
-            target_id=challenge.id,
-            detail={"reason": "expired"}
-        )
+    now = datetime.utcnow()
+    if challenge.expires_at < now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "challenge_expired", "message": "Challenge has expired (must complete in 30 seconds)"}
+            detail={"error": "challenge_expired", "message": "Challenge expired; please retry"},
         )
 
-    # Verify code hash
-    if hash_token(payload.code) != challenge.code_hash:
-        challenge.used_at = datetime.utcnow()
-        challenge.result = "fail"
-        db.commit()
-        log_audit(
-            db,
-            action="liveness_fail",
-            actor_id=challenge.user_id,
-            target_id=challenge.id,
-            detail={"reason": "code_mismatch"}
-        )
+    # Atomically claim single-use challenge to block concurrent replays
+    res = db.execute(
+        update(LivenessChallenge)
+        .where(LivenessChallenge.id == challenge.id, LivenessChallenge.used_at.is_(None))
+        .values(used_at=now)
+    )
+    if res.rowcount != 1:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": "invalid_code", "message": "Invalid challenge code"}
+            detail={"error": "challenge_used", "message": "Challenge has already been submitted"},
         )
+    db.flush()
 
     user = db.query(User).filter(User.id == challenge.user_id).first()
     if not user or user.status != "active":
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "account_disabled", "message": "User is not active"}
+            detail={"error": "account_disabled", "message": "User is not active"},
         )
-
-    challenge.used_at = datetime.utcnow()
 
     if not payload.passed:
         challenge.result = "fail"
@@ -182,172 +180,150 @@ def submit_result(
             db,
             action="liveness_fail",
             actor_id=user.id,
-            target_id=challenge.id,
-            detail={"type": challenge.type, "client_reported": False}
+            target_id=user.id,
+            detail={"type": challenge.type, "reason": payload.fail_reason or "check_failed"},
         )
-        return {
-            "status": "fail",
-            "passed": False,
-            "message": "Liveness check failed"
-        }
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "status": "fail",
+                "error": "liveness_failed",
+                "message": "Camera check did not succeed. Please retry in good lighting.",
+            },
+        )
 
-    # Liveness passed!
-    # Check biometric face match if user has an enrolled face embedding
-    face_matched = False
-    match_score = None
-
-    # Step A: If user has no embedding yet, auto-extract from saved registration snapshot
-    if not user.face_embedding and is_face_engine_ready():
-        photo_path = FACES_DIR / f"{user.id}.jpg"
-        if photo_path.exists():
-            saved_emb = extract_face_embedding(str(photo_path))
-            if saved_emb:
-                user.face_embedding = saved_emb
-                db.commit()
-                db.refresh(user)
-
-    # Step B: Biometric Face Match (candidate embeddings check)
-    candidate_embeddings = []
+    # Collect authorized face embeddings
+    candidates = []
     if user.admin_faces and isinstance(user.admin_faces, list):
-        for f in user.admin_faces:
-            if isinstance(f, dict) and f.get("embedding"):
-                candidate_embeddings.append(f["embedding"])
-    if user.face_embedding:
-        candidate_embeddings.append(user.face_embedding)
+        for profile in user.admin_faces:
+            if isinstance(profile, dict) and profile.get("embedding"):
+                candidates.append(profile["embedding"])
+    if user.face_embedding and not candidates:
+        candidates.append(user.face_embedding)
 
-    should_verify_face = bool(user.require_face_match) or (user.role != "admin" and bool(candidate_embeddings))
+    must_verify_face = bool(user.require_face_match or candidates)
+    face_score = None
 
-    if should_verify_face and candidate_embeddings:
+    if must_verify_face:
+        if not is_face_engine_ready():
+            challenge.result = "fail"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "error": "biometric_engine_unavailable",
+                    "message": "Biometric verification engine is temporarily unavailable. Login aborted for security.",
+                },
+            )
+        if not candidates:
+            challenge.result = "fail"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "face_not_enrolled",
+                    "message": "Face lock is enabled on this account, but no enrolled face embedding exists.",
+                },
+            )
         if not payload.live_frame:
             challenge.result = "fail"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "live_frame_required",
+                    "message": "A live camera snapshot is required for biometric verification.",
+                },
+            )
+
+        if len(candidates) == 1:
+            matched, score, match_msg = verify_live_face_against_stored(payload.live_frame, candidates[0])
+        else:
+            matched, score, match_msg = verify_live_face_against_candidates(payload.live_frame, candidates)
+        face_score = score
+        if not matched:
+            challenge.result = "face_mismatch"
             db.commit()
             log_audit(
                 db,
                 action="face_match_fail",
                 actor_id=user.id,
-                target_id=challenge.id,
-                detail={"score": 0.0, "reason": "No live camera frame provided for face match"}
+                target_id=user.id,
+                detail={"similarity_score": score, "reason": match_msg},
             )
-            return {
-                "status": "fail",
-                "passed": False,
-                "error": "face_mismatch",
-                "message": "Live camera frame required for biometric face authentication."
-            }
-
-        if is_face_engine_ready():
-            if len(candidate_embeddings) == 1:
-                is_match, score, msg = verify_live_face_against_stored(payload.live_frame, candidate_embeddings[0])
-            else:
-                is_match, score, msg = verify_live_face_against_candidates(payload.live_frame, candidate_embeddings)
-            match_score = score
-            if not is_match:
-                challenge.result = "fail"
-                db.commit()
-                log_audit(
-                    db,
-                    action="face_match_fail",
-                    actor_id=user.id,
-                    target_id=challenge.id,
-                    detail={"score": score, "reason": msg}
-                )
-                return {
-                    "status": "fail",
-                    "passed": False,
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "status": "face_mismatch",
                     "error": "face_mismatch",
-                    "message": msg
-                }
-            face_matched = True
-        else:
-            face_matched = True
-
-    # Step C: First login for accounts without prior photo: enroll live face now
-    elif payload.live_frame and is_face_engine_ready() and user.role != "admin":
-        emb = extract_face_embedding(payload.live_frame)
-        if emb is None:
-            challenge.result = "fail"
-            db.commit()
-            log_audit(
-                db,
-                action="liveness_fail",
-                actor_id=user.id,
-                target_id=challenge.id,
-                detail={"reason": "no_face_in_live_frame"}
+                    "confidence": score,
+                    "message": f"Biometric verification failed: {match_msg}.",
+                },
             )
-            return {
-                "status": "fail",
-                "passed": False,
-                "error": "face_not_detected",
-                "message": "No clear human face detected in the live camera frame."
-            }
-        # Enrol this face so all subsequent logins are locked to this person
-        user.face_embedding = emb
-        db.commit()
-        db.refresh(user)
-        face_matched = True
 
+    # Passed liveness and biometrics -> create SSO session
     challenge.result = "pass"
-    user.liveness_passed_at = datetime.utcnow()
-    user.last_active_at = datetime.utcnow()
+    user.liveness_passed_at = now
+    user.last_active_at = now
 
-    # Create SSO Session
-    session_expires = datetime.utcnow() + timedelta(hours=SSO_SESSION_HOURS)
-    sso_sess = SsoSession(
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    new_session = SsoSession(
         user_id=user.id,
-        created_at=datetime.utcnow(),
-        expires_at=session_expires,
-        revoked_at=None,
-        ip=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
+        expires_at=now + timedelta(hours=SSO_SESSION_HOURS),
+        ip=client_ip,
+        user_agent=user_agent,
     )
-    db.add(sso_sess)
+    db.add(new_session)
     db.commit()
-    db.refresh(sso_sess)
-
-    # Dispatch security alert email on successful sign-in
-    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "Unknown IP")
-    user_agent = request.headers.get("user-agent", "Unknown Device / Browser")
-    try:
-        send_login_alert_email(user.email, user.name, client_ip, user_agent)
-    except Exception:
-        pass
-
-    # Set HttpOnly session cookie (only use Secure flag if connection is actually HTTPS to avoid browser rejecting on HTTP)
-    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    response.set_cookie(
-        key="sso_session",
-        value=sso_sess.id,
-        httponly=True,
-        samesite="lax",
-        secure=is_https,
-        max_age=SSO_SESSION_HOURS * 3600,
-        path="/"
-    )
+    db.refresh(new_session)
 
     log_audit(
         db,
         action="liveness_pass",
         actor_id=user.id,
-        target_id=challenge.id,
-        detail={"type": challenge.type, "face_matched": face_matched, "similarity_score": match_score}
+        target_id=user.id,
+        detail={
+            "type": challenge.type,
+            "face_verified": must_verify_face,
+            "similarity": face_score,
+        },
     )
 
-    log_audit(
-        db,
-        action="login_ok",
-        actor_id=user.id,
-        target_id=user.id,
-        detail={"session_id": sso_sess.id, "via": "liveness"}
+    send_login_alert_email(
+        to_email=user.email,
+        name=user.name,
+        ip=client_ip or "Local Network",
+        user_agent=user_agent or "Browser",
+        org_name=ORG_NAME or "Jadavpur University Societies",
+        background=True,
+    )
+
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").lower()
+    is_https = IS_PRODUCTION or request.url.scheme == "https" or forwarded_proto == "https"
+    samesite_policy = "none" if is_https else "lax"
+
+    response.set_cookie(
+        key="sso_session",
+        value=new_session.id,
+        httponly=True,
+        max_age=SSO_SESSION_HOURS * 3600,
+        path="/",
+        samesite=samesite_policy,
+        secure=is_https,
     )
 
     return {
         "status": "ok",
         "passed": True,
-        "session_id": sso_sess.id,
+        "session_id": new_session.id,
+        "face_matched": True,
+        "confidence": face_score,
         "user": {
             "id": user.id,
             "email": user.email,
             "name": user.name,
-            "role": user.role
-        }
+            "role": user.role,
+        },
+        "message": "Live verification passed! Signed into central SSO.",
     }
