@@ -1,145 +1,169 @@
-import os
+import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app.config import FRONTEND_ORIGIN, APP_A_ORIGIN, APP_B_ORIGIN
-from app.database import engine, Base, SessionLocal, get_db
-from app.routes import auth, liveness, sso, admin
+from app.config import (
+    ALLOW_TUNNEL_ORIGINS,
+    APP_A_ORIGIN,
+    APP_B_ORIGIN,
+    APP_C_ORIGIN,
+    APP_D_ORIGIN,
+    APP_E_ORIGIN,
+    BOOTSTRAP_PASSWORD,
+    BOOTSTRAP_USERNAME,
+    CORS_ORIGINS,
+    FRONTEND_ORIGIN,
+    IS_PRODUCTION,
+    SUPERUSER_CREATION_KEY,
+)
+from app.database import SessionLocal
 from app.jobs.cleanup import run_cleanup_job
+from app.middleware.security import SecurityHeadersMiddleware
+from app.models import SystemBootstrap
+from app.routes import admin, auth, integrations, liveness, reports, setup, sso
+from app.security import hash_password
+from app.services.face_engine import is_face_engine_ready
 
-# Set up logging (never log sensitive tokens or passwords)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-logger = logging.getLogger("sankalp.auth")
+logger = logging.getLogger("sankalp.main")
 
-scheduler = BackgroundScheduler()
 
-def scheduled_cleanup():
-    logger.info("Executing daily automated cleanup job...")
+async def _periodic_cleanup_loop():
+    """Run lifecycle cleanup every 15 minutes in background."""
+    while True:
+        try:
+            await asyncio.to_thread(run_cleanup_job)
+        except Exception as exc:
+            logger.error("Background cleanup error: %s", exc)
+        await asyncio.sleep(900)
+
+
+def _seed_bootstrap_from_env():
+    """If SUPERUSER_CREATION_KEY is set via environment, seed initial uncompleted bootstrap record safely."""
+    if not SUPERUSER_CREATION_KEY:
+        return
     db = SessionLocal()
     try:
-        res = run_cleanup_job(db)
-        logger.info("Scheduled cleanup complete: %s", res)
-    except Exception as e:
-        logger.error("Error running cleanup job: %s", e)
+        existing = db.query(SystemBootstrap).filter(SystemBootstrap.id == "singleton").first()
+        if not existing:
+            boot = SystemBootstrap(
+                id="singleton",
+                primary_key_hash=hash_password(SUPERUSER_CREATION_KEY),
+                bootstrap_username=BOOTSTRAP_USERNAME or None,
+                bootstrap_password_hash=hash_password(BOOTSTRAP_PASSWORD) if BOOTSTRAP_PASSWORD else None,
+                setup_completed=False,
+            )
+            db.add(boot)
+            db.commit()
+    except Exception as exc:
+        logger.warning("Bootstrap env sync skipped: %s", exc)
     finally:
         db.close()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist
-    logger.info("Creating database tables if not existing...")
-    Base.metadata.create_all(bind=engine)
+    _seed_bootstrap_from_env()
+    cleanup_task = None
+    in_pytest = "PYTEST_CURRENT_TEST" in os.environ
+    if not in_pytest and os.getenv("DISABLE_BACKGROUND_CLEANUP", "false").lower() != "true":
+        cleanup_task = asyncio.create_task(_periodic_cleanup_loop())
+    try:
+        yield
+    finally:
+        if cleanup_task:
+            cleanup_task.cancel()
 
-    # Schedule daily cleanup only in non-testing mode
-    enable_scheduler = os.getenv("ENABLE_SCHEDULER", "true").lower() == "true"
-    if enable_scheduler and not scheduler.running:
-        try:
-            scheduler.add_job(scheduled_cleanup, "interval", hours=24, id="daily_cleanup", replace_existing=True)
-            scheduler.start()
-            logger.info("APScheduler background cleanup job registered.")
-        except Exception as e:
-            logger.warning(f"Could not start scheduler: {e}")
-
-    yield
-
-    # Shutdown
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-    logger.info("Application shutdown complete.")
 
 app = FastAPI(
-    title="Sankalp SSO & Digital Identity",
-    description="Real Person, Real Access - Self-hosted SSO with in-browser liveness and automatic lifecycle cleanup",
-    version="1.0.0",
-    lifespan=lifespan
+    title="Sankalp SSO — Real Person, Real Access",
+    description="Self-hosted SSO with Active Physical Liveness, Biometric Face Lock, Automatic Lifecycle Cleanup & Universal Integration API.",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
-# ==============================================================================
-# Cross-Origin Resource Sharing (CORS) Configuration
-# In plain words: Web browsers block JavaScript from one website/port talking to
-# another website/port unless explicitly permitted. Here we allow the Central
-# Login portal (5173) and our 5 Connected Campus Clubs (5174 through 5178) to
-# communicate securely with this authentication server.
-# ==============================================================================
-allowed_origins = [
-    FRONTEND_ORIGIN,
-    "http://localhost:5180", "http://127.0.0.1:5180",  # Central Login & Admin (Port 5180)
-    "http://localhost:5173", "http://127.0.0.1:5173",  # Central Login & Admin (Legacy port)
-    # 5 Connected University Clubs:
-    "http://localhost:5174", "http://127.0.0.1:5174",  # Club 1: Photography Club
-    "http://localhost:5175", "http://127.0.0.1:5175",  # Club 2: Robotics Lab
-    "http://localhost:5176", "http://127.0.0.1:5176",  # Club 3: Coding & AI Club
-    "http://localhost:5177", "http://127.0.0.1:5177",  # Club 4: Chess & Mind Sports
-    "http://localhost:5178", "http://127.0.0.1:5178",  # Club 5: Athletics & Sports
-    "http://localhost:8001", "http://127.0.0.1:8001",  # Backend API (Port 8001)
-    "http://localhost:8000", "http://127.0.0.1:8000"   # Backend API (Legacy port)
-]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"https?://.*",
-    allow_credentials=True,  # Crucial: allows HttpOnly session cookies to be sent across origins
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-# Exception handlers matching api.md standard: { "error": "short_code", "message": "plain words" }
-@app.exception_handler(StarletteHTTPException)
-async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if isinstance(exc.detail, dict) and "error" in exc.detail:
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    if isinstance(exc.detail, dict):
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": "http_error", "message": str(exc.detail)}
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+# Explicit strict CORS origin allowlist (no wildcard https?://.*)
+allowed_origins = {
+    FRONTEND_ORIGIN.rstrip("/"),
+    APP_A_ORIGIN.rstrip("/"),
+    APP_B_ORIGIN.rstrip("/"),
+    APP_C_ORIGIN.rstrip("/"),
+    APP_D_ORIGIN.rstrip("/"),
+    APP_E_ORIGIN.rstrip("/"),
+    *CORS_ORIGINS,
+}
+if not IS_PRODUCTION:
+    allowed_origins.update(
+        {
+            "http://localhost:5173",
+            "http://localhost:5180",
+            "http://127.0.0.1:5180",
+            "http://localhost:5174",
+            "http://localhost:5175",
+            "http://localhost:5176",
+            "http://localhost:5177",
+            "http://localhost:5178",
+        }
     )
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    first_error = exc.errors()[0] if exc.errors() else {}
-    msg = first_error.get("msg", "Invalid request parameters")
-    field = ".".join(str(loc) for loc in first_error.get("loc", []))
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"error": "validation_error", "message": f"{field}: {msg}"}
-    )
+cors_kwargs = {
+    "allow_origins": sorted(o for o in allowed_origins if o),
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if ALLOW_TUNNEL_ORIGINS:
+    cors_kwargs["allow_origin_regex"] = r"^https://[a-zA-Z0-9-]+\.(ngrok-free\.app|ngrok\.io|trycloudflare\.com)$"
 
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception: %s", exc, exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "server_error", "message": "An internal server error occurred."}
-    )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
-# Include routes
 app.include_router(auth.router)
 app.include_router(liveness.router)
 app.include_router(sso.router)
 app.include_router(admin.router)
+app.include_router(setup.router)
+app.include_router(integrations.router)
+app.include_router(reports.router)
 
-@app.get("/me")
-def get_me_alias(request: Request, db: Session = Depends(get_db)):
-    """Direct /me endpoint defined in docs/specs/api.md."""
-    return auth.get_me(request=request, db=db)
 
 @app.get("/")
-@app.get("/health")
-def health_check():
-    """Healthcheck and system status."""
+def root():
     return {
-        "system": "Sankalp Real Person, Real Access SSO",
+        "name": "Sankalp SSO — Real Person, Real Access",
+        "version": "2.0.0",
         "status": "healthy",
-        "version": "1.0.0",
-        "database": "connected"
+        "discovery": "/.well-known/openid-configuration",
+        "integration_api": "/api/v1/integrations/discovery",
+    }
+
+
+@app.get("/health")
+def health():
+    db_ok = False
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        db_ok = False
+    finally:
+        db.close()
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "connected" if db_ok else "error",
+        "face_engine_ready": is_face_engine_ready(),
+        "environment": "production" if IS_PRODUCTION else "development",
     }

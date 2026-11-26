@@ -1,6 +1,1 @@
-"""
-Sankalp SSO — API Route Controllers.
-"""
-from app.routes import auth, liveness, sso, admin
-
-__all__ = ["auth", "liveness", "sso", "admin"]
+from app.routes import admin, auth, integrations, liveness, reports, setup, sso  # noqa: F401
