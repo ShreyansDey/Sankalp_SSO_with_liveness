@@ -12,6 +12,8 @@ VALID_AUDIT_ACTIONS = {
     "liveness_pass",
     "liveness_fail",
     "token_issued",
+    "token_introspected",
+    "token_revoked",
     "access_denied",
     "user_marked_left",
     "user_disabled_auto",
@@ -19,6 +21,8 @@ VALID_AUDIT_ACTIONS = {
     "delete_requested",
     "delete_approved",
     "product_registered",
+    "app_secret_rotated",
+    "app_deleted",
     "application_submitted",
     "application_approved",
     "application_rejected",
@@ -32,19 +36,27 @@ VALID_AUDIT_ACTIONS = {
     "user_purged_permanently",
     "admin_face_enrolled",
     "admin_face_deleted",
-    "admin_face_restriction_toggled"
+    "admin_face_restriction_toggled",
+    "primary_key_configured",
+    "superuser_bootstrapped",
+    "api_key_created",
+    "api_key_revoked",
+    "integration_user_revoked",
+    "otp_requested",
+    "otp_failed",
 }
+
 
 def log_audit(
     db: Session,
     action: str,
     actor_id: Optional[str] = None,
     target_id: Optional[str] = None,
-    detail: Optional[Dict[str, Any]] = None
+    detail: Optional[Dict[str, Any]] = None,
 ) -> AuditLog:
     """
     Log an audit event strictly matching the fixed action list.
-    Sanitizes detail to guarantee no secrets, passwords, or tokens are logged.
+    Sanitizes detail to guarantee no secrets, passwords, OTPs, or tokens are logged.
     """
     if action not in VALID_AUDIT_ACTIONS:
         raise ValueError(f"Action '{action}' is not in the fixed audit actions list")
@@ -53,8 +65,10 @@ def log_audit(
     if detail:
         sanitized_detail = {}
         for k, v in detail.items():
-            # Guarantee no sensitive fields are logged
-            if any(forbidden in k.lower() for forbidden in ["password", "token", "secret", "code", "hash"]):
+            if any(
+                forbidden in k.lower()
+                for forbidden in ["password", "token", "secret", "code", "hash", "otp", "api_key", "primary_key"]
+            ):
                 continue
             sanitized_detail[k] = v
 
@@ -62,7 +76,7 @@ def log_audit(
         actor_id=actor_id,
         action=action,
         target_id=target_id,
-        detail=sanitized_detail
+        detail=sanitized_detail,
     )
     db.add(entry)
     db.commit()

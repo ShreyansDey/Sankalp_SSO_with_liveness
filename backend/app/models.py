@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Date, ForeignKey, JSON, Text, Boolean
+from sqlalchemy import Column, String, DateTime, Date, ForeignKey, JSON, Text, Boolean, Integer
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -66,6 +66,8 @@ class Product(Base):
     client_id = Column(String(100), unique=True, nullable=False, index=True)
     client_secret_hash = Column(String(255), nullable=False)
     redirect_uri = Column(String(500), nullable=False)
+    allowed_origins = Column(Text, nullable=True)
+    api_only = Column(Boolean, default=False, nullable=False)
 
     auth_codes = relationship("AuthCode", back_populates="product", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="product", cascade="all, delete-orphan")
@@ -90,6 +92,9 @@ class AuthCode(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False, index=True)
     code_hash = Column(String(255), nullable=False, unique=True, index=True)
+    code_challenge = Column(String(255), nullable=True)
+    code_challenge_method = Column(String(20), nullable=True)
+    redirect_uri = Column(String(500), nullable=True)
     expires_at = Column(DateTime, nullable=False)  # 60 s
     used_at = Column(DateTime, nullable=True)
 
@@ -159,3 +164,44 @@ class RenewalRequest(Base):
     admin_notes = Column(Text, nullable=True)
 
     user = relationship("User", back_populates="renewal_requests", foreign_keys=[user_id])
+
+
+class SystemBootstrap(Base):
+    __tablename__ = "system_bootstrap"
+
+    id = Column(String(36), primary_key=True, default="singleton")
+    primary_key_hash = Column(String(255), nullable=True)
+    bootstrap_username = Column(String(255), nullable=True)
+    bootstrap_password_hash = Column(String(255), nullable=True)
+    setup_completed = Column(Boolean, default=False, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    completed_by = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(255), nullable=False)
+    key_prefix = Column(String(32), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False, unique=True, index=True)
+    scopes = Column(JSON, nullable=False, default=list)
+    created_by = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+
+class AdminOtpToken(Base):
+    __tablename__ = "admin_otp_tokens"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    otp_hash = Column(String(255), nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
