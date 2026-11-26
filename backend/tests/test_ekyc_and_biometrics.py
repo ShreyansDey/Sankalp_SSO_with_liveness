@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import numpy as np
 from app.models import User, Invite, SsoSession, LivenessChallenge, AuditLog
-from app.security import hash_password, hash_token, generate_random_token
+from app.security import create_signed_ticket, hash_password, hash_token, generate_random_token
 from app.services.face_engine import (
     compare_face_embeddings,
     extract_face_embedding,
@@ -91,7 +91,7 @@ def test_ekyc_apply_and_admin_approval_lifecycle(client, db_session, monkeypatch
 
     # 2. Student applies via /auth/apply
     # Mock base64 face snapshot data URL
-    fake_face = "data:image/jpeg;base64," + "a" * 100
+    fake_face = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/" + "A" * 80
     res_apply = client.post("/auth/apply", json={
         "invite_token": raw_invite_token,
         "name": "EKYC Student",
@@ -205,7 +205,8 @@ def test_liveness_with_biometric_face_matching(client, db_session, monkeypatch):
     db_session.commit()
 
     # 1. Request challenge
-    res_ch = client.post("/liveness/challenge", json={"user_id": user.id})
+    ticket = create_signed_ticket(user.id, purpose="liveness")
+    res_ch = client.post("/liveness/challenge", json={"user_id": user.id, "login_ticket": ticket})
     assert res_ch.status_code == 200
     ch_data = res_ch.json()
     challenge_id = ch_data["challenge_id"]
@@ -215,11 +216,11 @@ def test_liveness_with_biometric_face_matching(client, db_session, monkeypatch):
     res_no_frame = client.post("/liveness/result", json={
         "challenge_id": challenge_id,
         "code": code,
-        "passed": True
+        "passed": True,
+        "login_ticket": ticket
     })
-    assert res_no_frame.status_code == 200
-    assert res_no_frame.json()["status"] == "fail"
-    assert res_no_frame.json()["error"] == "face_mismatch"
+    assert res_no_frame.status_code == 400
+    assert res_no_frame.json()["error"] == "live_frame_required"
 
     # Case B: Impostor face (mock verify_live_face_against_stored returning False)
     import app.routes.liveness as liveness_module
@@ -230,18 +231,19 @@ def test_liveness_with_biometric_face_matching(client, db_session, monkeypatch):
         lambda frame, emb: (False, 0.12, "Face does not match")
     )
 
-    res_ch2 = client.post("/liveness/challenge", json={"user_id": user.id})
+    res_ch2 = client.post("/liveness/challenge", json={"user_id": user.id, "login_ticket": ticket})
     ch_data2 = res_ch2.json()
 
     res_impostor = client.post("/liveness/result", json={
         "challenge_id": ch_data2["challenge_id"],
         "code": ch_data2["code"],
         "passed": True,
-        "live_frame": "data:image/jpeg;base64,impostor_frame"
+        "live_frame": "data:image/jpeg;base64,impostor_frame",
+        "login_ticket": ticket
     })
-    assert res_impostor.status_code == 200
+    assert res_impostor.status_code == 401
     res_impostor_data = res_impostor.json()
-    assert res_impostor_data["status"] == "fail"
+    assert res_impostor_data["status"] == "face_mismatch"
     assert res_impostor_data["error"] == "face_mismatch"
 
     # Case C: Genuine user face match (mock verify_live_face_against_stored returning True)
@@ -251,14 +253,15 @@ def test_liveness_with_biometric_face_matching(client, db_session, monkeypatch):
         lambda frame, emb: (True, 0.89, "Face match confirmed")
     )
 
-    res_ch3 = client.post("/liveness/challenge", json={"user_id": user.id})
+    res_ch3 = client.post("/liveness/challenge", json={"user_id": user.id, "login_ticket": ticket})
     ch_data3 = res_ch3.json()
 
     res_genuine = client.post("/liveness/result", json={
         "challenge_id": ch_data3["challenge_id"],
         "code": ch_data3["code"],
         "passed": True,
-        "live_frame": "data:image/jpeg;base64,genuine_frame"
+        "live_frame": "data:image/jpeg;base64,genuine_frame",
+        "login_ticket": ticket
     })
     assert res_genuine.status_code == 200
     res_genuine_data = res_genuine.json()
@@ -315,7 +318,7 @@ def test_admin_face_lock_enforcement_gating(client, db_session, monkeypatch):
     assert len(res_profiles.json()["faces"]) == 0
 
     # 3. Enroll authorized face profile
-    fake_face = "data:image/jpeg;base64," + "b" * 120
+    fake_face = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/" + "B" * 80
     res_enroll = client.post("/admin/face-profiles", json={
         "label": "Primary Admin Profile",
         "face_photo": fake_face
@@ -339,12 +342,14 @@ def test_admin_face_lock_enforcement_gating(client, db_session, monkeypatch):
     assert res_toggle_off_blocked.status_code == 400
     assert res_toggle_off_blocked.json()["error"] == "2fa_required"
 
+    captured_otp = {}
+    import app.routes.admin_facelock as facelock_mod
+    monkeypatch.setattr(facelock_mod, "send_disable_face_lock_otp_email", lambda **kw: captured_otp.update(otp=kw["otp_code"]) or True)
     # Request 2FA OTP code
     res_otp_req = client.post("/admin/face-profiles/request-disable-otp")
     assert res_otp_req.status_code == 200
-    vault_entry = admin_module._DISABLE_LOCK_OTP_VAULT.get(admin.id)
-    assert vault_entry is not None
-    otp_code = vault_entry["otp"]
+    otp_code = captured_otp.get("otp")
+    assert otp_code is not None and len(otp_code) == 6
 
     # Wrong OTP fails
     res_verify_fail = client.post("/admin/face-profiles/verify-disable-otp", json={"otp": "000000"})

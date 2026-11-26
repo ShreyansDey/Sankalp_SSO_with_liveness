@@ -445,3 +445,24 @@ Every cryptographic and biometric access control system has defined boundaries:
 - **Event**: Hack N Pitch 2026, Jadavpur University E-Cell
 - **Track**: Cybersecurity & Digital Identity
 - **License**: MIT License
+
+
+---
+
+## Universal External SSO Integration & First-Time Superuser Bootstrap (v2.0)
+
+Any external web app, ERP, or SaaS system can connect to Sankalp SSO using standard OAuth2 / OIDC + PKCE and scoped REST API keys:
+
+### 1. Set Your First-Time Superuser Creation Primary Key
+Run the interactive cross-OS generator CLI or open `/setup` on a fresh instance:
+```bash
+python scripts/generate_key.py
+```
+This prompts you to input your own **First-Time Superuser Creation Primary Key** (plus optional bootstrap username/password) and mints an initial `sk_live_...` API key. Use that Primary Key on `/setup` (or `POST /api/v1/setup/bootstrap-superuser`) to create the very first Super Admin credential; bootstrap locks permanently once complete.
+
+### 2. Connect External Applications
+- **OIDC Discovery:** `GET /.well-known/openid-configuration`
+- **Integration Discovery:** `GET /api/v1/integrations/discovery`
+- **Register App / Rotate Secret:** `POST /api/v1/integrations/apps` (`X-API-Key: sk_live_...`)
+- **Introspect / Revoke Tokens:** `POST /token/introspect`, `POST /token/revoke`
+- **Download Immutable Audit & Stress Reports:** `GET /api/v1/reports`

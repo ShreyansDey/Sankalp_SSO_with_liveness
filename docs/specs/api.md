@@ -477,3 +477,25 @@ If you have never built a web backend, here is how clients (browsers and apps) t
 - **Headers**: Admin session cookie required.
 - **Request Body** (Optional): `{"notes": "Term completed; ineligible for reactivation."}`
 - **Effect**: Marks request as `declined`, dispatches decline notice email to student, and logs `renewal_declined`. Member data remains scheduled for permanent purge after 48 hours.
+
+
+---
+
+## v2.0 Additions — Universal SSO Integration API, Setup Bootstrap, OIDC Discovery & Reports
+
+### First-Time Superuser Bootstrap (`/api/v1/setup/*`)
+- `GET /api/v1/setup/status` — Returns `{ needs_bootstrap, has_admin, primary_key_configured, requires_bootstrap_credentials, setup_completed, org_name }`.
+- `POST /api/v1/setup/configure-primary-key` — Sets user-supplied `primary_key` (min 12 chars, Argon2 hashed) + optional `bootstrap_username` / `bootstrap_password`, and mints an initial `sk_live_...` API key before bootstrap completes (admin session required once configured).
+- `POST /api/v1/setup/bootstrap-superuser` — Single-use atomic creation of the first `admin` account guarded by `primary_key` (+ optional bootstrap credentials). Permanently returns `409 setup_already_completed` afterward.
+
+### Universal Integration & API Keys (`/api/v1/*`)
+- `GET /.well-known/openid-configuration` — Standard OIDC / OAuth2 discovery document (`issuer`, `authorization_endpoint`, `token_endpoint`, `introspection_endpoint`, `revocation_endpoint`, `userinfo_endpoint`, PKCE `S256`).
+- `GET /api/v1/integrations/discovery` — Machine-readable integration manifest.
+- `POST /api/v1/keys`, `GET /api/v1/keys`, `DELETE /api/v1/keys/{key_id}` — Scoped API key management (`X-API-Key: sk_live_...`).
+- `POST /api/v1/integrations/apps`, `GET /api/v1/integrations/apps`, `POST /api/v1/integrations/apps/{app_id}/rotate-secret`, `DELETE /api/v1/integrations/apps/{app_id}` — External OAuth2/PKCE application management.
+- `POST /token/introspect`, `POST /token/revoke` — RFC 7662 / RFC 7009 token inspection & revocation with live user active check.
+- `POST /api/v1/integrations/users/verify-token`, `GET /api/v1/integrations/users/{user_id}/status`, `POST /api/v1/integrations/users/{user_id}/revoke`, `GET /api/v1/integrations/audit`.
+
+### Immutable Downloadable Reports (`/api/v1/reports/*`)
+- `GET /api/v1/reports` — Lists `.md`, `.html`, `.json`, `.sha256` reports with SHA-256 digests.
+- `GET /api/v1/reports/{filename}/download` — Downloads report artifact with `X-Report-SHA256` header.

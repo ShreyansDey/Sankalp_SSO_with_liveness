@@ -160,3 +160,14 @@ To maintain scientific integrity during technical evaluations, Team Sankalp expl
    - Sankalp mitigates this by requiring a valid server challenge code (30s window), enforcing rate limits, capturing a live frame for server-side SFace verification, and recording an immutable audit trail.
 3. **Environmental Factors (Lighting & Cameras)**:
    - Severe under-exposure (very dark rooms) or harsh backlighting (standing directly in front of a bright sunlit window) can degrade camera sensor SNR and landmark regression accuracy. The frontend UI provides automated visual feedback instructing users to face ambient light.
+
+
+---
+
+## v2.0 Security Hardening Summary
+
+1. **Ticket-Bound Liveness:** `POST /liveness/challenge` and `/liveness/result` enforce a signed short-lived `login_ticket` (issued on `/auth/login`, `/auth/signup`, or `/api/v1/setup/bootstrap-superuser`) or an active `sso_session`.
+2. **Fail-Closed Biometrics:** Missing biometric models during face-locked verification return `503 biometric_engine_unavailable`; face mismatches return `401 face_mismatch`.
+3. **Strict CORS & Redirect URI Validation:** Removed wildcard `https?://.*` CORS and `.*\.ngrok.*` redirect wildcards; exact registered URI matching + PKCE `S256` enforced.
+4. **Binary Upload & XSS Defense:** Portrait/PDF uploads checked by byte cap (5MB/10MB) and magic-byte header; email HTML builders escape interpolated fields with `html.escape()`; demo apps escape identity claims and verify OAuth `state`.
+5. **Atomic Single-Use & DB-Persisted 2FA OTP:** `AuthCode`, `Invite`, `PasswordResetToken`, `LivenessChallenge`, `AdminOtpToken`, and `SystemBootstrap` consume atomically via conditional SQL `UPDATE` statements with `secrets.compare_digest`.

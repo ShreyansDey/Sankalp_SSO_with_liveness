@@ -99,3 +99,13 @@
 - [x] Complete `09-system-overview-and-pitch.md` (Overall System Analysis, Market Sizing, Corporate Sponsorship ROI, Judge Conviction Strategy, and Claude PPTX Generation Deck).
 - [x] Seed demo database with Rahul and expired alumni test accounts (`python backend/seed.py`).
 - [x] Rehearse 4-minute demo presentation script twice.
+
+
+---
+
+## 🔐 Phase 6: Security Hardening, Modular Refactoring, Universal SSO API & Stress Verification (v2.0)
+- [x] Fix all audited security vulnerabilities (ticket-bound liveness, fail-closed biometrics `503`, HTTP `401` on `face_mismatch`, strict CORS & redirect URI allowlisting, binary upload magic-byte caps, XSS HTML escaping, atomic single-use claims, DB-backed OTP lockout).
+- [x] Split oversized monoliths cleanly (`admin.py`, `auth.py`, `email_service.py`) and add SQLite WAL + `busy_timeout=5000` + `foreign_keys=ON`.
+- [x] Implement Universal External SSO API (`/api/v1/keys`, `/api/v1/integrations/*`, `/.well-known/openid-configuration`, PKCE `S256`, RFC 7662 `/token/introspect`, `/token/revoke`) & First-Time Superuser Creation Primary Key Bootstrap (`/api/v1/setup/*`, `scripts/generate_key.py`, `/setup` UI).
+- [x] Add comprehensive security regression, Dummy SaaS/SQLite connector lifecycle, and multi-threaded WAL race/latency stress tests (**30/30 passed**).
+- [x] Generate immutable SHA-256 verified reports (`docs/reports/`) downloadable via `/api/v1/reports` and documented in `docs/modules/10-universal-api-and-bootstrap.md`.

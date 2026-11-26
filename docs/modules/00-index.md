@@ -17,6 +17,7 @@ Welcome to the implementation catalog for **Sankalp SSO**. Every core capability
 | [**07**](file:///docs/modules/07-demo-apps.md) | **Demo Apps** (5 Connected Campus Clubs: Ports 5174–5178) | `demo-apps/serve_demo_apps.py`<br/>`demo-apps/app-[a-e]/index.html` | **Done** | Shaan & Arka | End-to-End Browser Tests |
 | [**08**](file:///docs/modules/08-ekyc-face-verification.md) | **e-KYC & Biometrics** (YuNet + SFace 128D Vectors, Cosine Match $\ge 0.40$, Multi-Admin Face) | `backend/app/services/face_engine.py`<br/>`frontend/src/pages/Register.jsx` | **Done** | Arka & Shaan | `backend/tests/test_ekyc_and_biometrics.py`<br/>`backend/test_full_system.py` |
 | [**09**](file:///docs/modules/09-system-overview-and-pitch.md) | **System Analysis & Pitch Deck** (Overall Blueprint, Market Analysis, Sponsor ROI, Claude PPTX) | `docs/modules/09-system-overview-and-pitch.md` | **Done** | Shaan & Arka | Full System Specs & Benchmark Suite |
+| [**10**](file:///docs/modules/10-universal-api-and-bootstrap.md) | **Universal Integration API & Bootstrap** (Primary-Key Superuser Setup, API Keys, OIDC/PKCE, Introspect/Revoke, Reports) | `backend/app/routes/setup.py`<br/>`backend/app/routes/integrations.py`<br/>`scripts/generate_key.py`<br/>`frontend/src/pages/Setup.jsx` | **Done** | Shaan & Arka | `backend/tests/test_universal_api_and_security.py`<br/>`backend/tests/test_stress_and_connectors.py` |
 
 ---
 

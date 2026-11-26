@@ -325,3 +325,14 @@ To prevent tampering or inconsistent log entries, the backend strictly validates
 | 22 | `renewal_approved` | Admin approves 48-hour recovery request | Admin User ID | User ID | `{"email": "rahul@ju.edu", "request_id": "req-123"}` |
 | 23 | `renewal_declined` | Admin declines 48-hour recovery request | Admin User ID | User ID | `{"email": "rahul@ju.edu", "request_id": "req-123"}` |
 | 24 | `user_purged_permanently` | 48-hour cleanup daemon purges records & files | `"system_cleanup_job"` | User ID | `{"email": "rahul@ju.edu", "held_hours": 48}` |
+
+
+---
+
+## v2.0 Additions — Extended Tables & Columns
+
+- **`products`** added columns: `allowed_origins` (`TEXT NULL`), `api_only` (`BOOLEAN DEFAULT FALSE`).
+- **`auth_codes`** added columns: `code_challenge` (`VARCHAR(255) NULL`), `code_challenge_method` (`VARCHAR(20) NULL`), `redirect_uri` (`VARCHAR(500) NULL`).
+- **`system_bootstrap`**: `id` (`singleton`), `primary_key_hash`, `bootstrap_username`, `bootstrap_password_hash`, `setup_completed`, `completed_at`, `completed_by`, `created_at`.
+- **`api_keys`**: `id`, `name`, `key_prefix`, `key_hash` (SHA-256 unique), `scopes` (`JSON`), `created_by`, `created_at`, `expires_at`, `last_used_at`, `revoked_at`.
+- **`admin_otp_tokens`**: `id`, `user_id` (FK `users.id`), `otp_hash` (SHA-256), `attempts` (max 5), `expires_at`, `used_at`, `created_at`.
