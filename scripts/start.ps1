@@ -1,4 +1,4 @@
-# PowerShell Start Script for Sankalp SSO
+﻿# PowerShell Start Script for Sankalp SSO
 [CmdletBinding()]
 param(
     [switch]$Background,
@@ -54,7 +54,7 @@ if ($Foreground) {
     & $PyDirect "$RootDir/backend/seed.py"
 
     # 2. Backend Server (FastAPI on Port 8001)
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Backend API (Port 8001)'; cd '$RootDir/backend'; $PyCmd -m uvicorn app.main:app --reload --port 8001"
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Backend API (Port 8001)'; cd '$RootDir/backend'; $PyCmd -m uvicorn app.main:app --reload --reload-dir app --port 8001"
     
     # 3. 5 Connected Campus Clubs (Ports 5174 through 5178)
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Campus Clubs (Ports 5174-5178)'; cd '$RootDir/demo-apps'; $PyCmd serve_demo_apps.py"

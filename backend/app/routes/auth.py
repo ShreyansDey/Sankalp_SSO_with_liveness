@@ -19,7 +19,7 @@ from app.security import (
     generate_random_token
 )
 from app.audit import log_audit
-from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN, PURGE_GRACE_HOURS
+from app.config import SSO_SESSION_HOURS, IS_PRODUCTION, FRONTEND_ORIGIN, PURGE_GRACE_HOURS, resolve_frontend_origin
 from app.deps import get_current_session, get_current_user_from_session
 from app.services.face_engine import extract_face_embedding
 from app.services.email_service import (
@@ -590,7 +590,11 @@ def get_me(
     )
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
     """
     Password Reset: Accepts email, generates a cryptographically secure 15-minute token,
     hashes it into the database, and sends a password reset link to the user's email via SMTP.
@@ -624,8 +628,9 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         db.add(reset_token_obj)
         db.commit()
 
-        # 4. Construct reset URL
-        reset_link = f"{FRONTEND_ORIGIN}/reset-password?token={raw_token}"
+        # 4. Construct reset URL dynamically
+        base_origin = resolve_frontend_origin(request)
+        reset_link = f"{base_origin}/reset-password?token={raw_token}"
 
         # 5. Dispatch email via SMTP
         send_password_reset_email(

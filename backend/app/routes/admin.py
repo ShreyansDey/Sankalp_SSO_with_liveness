@@ -5,7 +5,7 @@ import secrets
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from app.security import (
     hash_password
 )
 from app.audit import log_audit
-from app.config import FRONTEND_ORIGIN, PURGE_GRACE_HOURS
+from app.config import FRONTEND_ORIGIN, PURGE_GRACE_HOURS, resolve_frontend_origin
 from app.deps import require_admin_user
 from app.jobs.cleanup import run_cleanup_job
 from app.services.face_engine import extract_face_embedding
@@ -56,6 +56,7 @@ from app.schemas.admin import (
 @router.post("/invites")
 def create_invite(
     payload: CreateInviteRequest,
+    request: Request = None,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin_user)
 ):
@@ -82,7 +83,8 @@ def create_invite(
         detail={"email": payload.email, "role": payload.role}
     )
 
-    invite_url = f"{FRONTEND_ORIGIN}/register?token={raw_token}"
+    base_origin = resolve_frontend_origin(request)
+    invite_url = f"{base_origin}/register?token={raw_token}"
 
     # Dispatch invite email to student in background
     send_invite_email(
@@ -161,6 +163,7 @@ def list_users(
 @router.post("/users/{user_id}/mark-left")
 def mark_user_left(
     user_id: str,
+    request: Request = None,
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin_user)
 ):
@@ -212,7 +215,8 @@ def mark_user_left(
     send_marked_as_left_email(to_email=user.email, name=user.name, background=True)
 
     # Send 48-hour recovery/purge notice email with renew link
-    renew_url = f"{FRONTEND_ORIGIN}/renew?email={user.email}"
+    base_origin = resolve_frontend_origin(request)
+    renew_url = f"{base_origin}/renew?email={user.email}"
     try:
         send_mark_as_left_email(user.email, user.name, renew_url)
     except Exception:

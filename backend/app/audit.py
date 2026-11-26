@@ -28,6 +28,7 @@ VALID_AUDIT_ACTIONS = {
     "renewal_requested",
     "renewal_approved",
     "renewal_declined",
+    "expiry_warning_sent",
     "user_purged_permanently",
     "admin_face_enrolled",
     "admin_face_deleted",

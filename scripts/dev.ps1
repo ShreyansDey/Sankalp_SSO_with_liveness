@@ -1,4 +1,4 @@
-# PowerShell Development Launcher for Windows
+﻿# PowerShell Development Launcher for Windows
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 
@@ -40,7 +40,7 @@ Write-Host "Checking seed data..." -ForegroundColor Yellow
 & $PyDirect "$RootDir/backend/seed.py"
 
 # Start Backend
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Backend API (Port 8001)'; cd '$RootDir/backend'; $PyCmd -m uvicorn app.main:app --reload --port 8001"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Backend API (Port 8001)'; cd '$RootDir/backend'; $PyCmd -m uvicorn app.main:app --reload --reload-dir app --port 8001"
 
 # Start Demo Apps
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.ui.RawUI.WindowTitle = 'Sankalp SSO - Campus Clubs (Ports 5174-5178)'; cd '$RootDir/demo-apps'; $PyCmd serve_demo_apps.py"
