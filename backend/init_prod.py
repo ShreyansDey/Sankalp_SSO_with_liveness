@@ -59,14 +59,15 @@ def init_production():
                 print(f"Created initial admin account: {admin_email}")
 
         default_apps = [
-            ("Campus Robotics Club Portal (App A)", "app-a", os.getenv("APP_A_SECRET"), f"{APP_A_ORIGIN}/index.html"),
-            ("Science & Coding Society Portal (App B)", "app-b", os.getenv("APP_B_SECRET"), f"{APP_B_ORIGIN}/index.html"),
-            ("Photography & Media Guild (App C)", "app-c", os.getenv("APP_C_SECRET"), f"{APP_C_ORIGIN}/index.html"),
-            ("Cultural & Dramatics Society (App D)", "app-d", os.getenv("APP_D_SECRET"), f"{APP_D_ORIGIN}/index.html"),
-            ("Robotics & AI Society (App E)", "app-e", os.getenv("APP_E_SECRET"), f"{APP_E_ORIGIN}/index.html"),
+            ("Campus Robotics Club Portal (App A)", "app-a", os.getenv("APP_A_SECRET"), os.getenv("APP_A_ORIGIN"), f"{APP_A_ORIGIN}/index.html"),
+            ("Science & Coding Society Portal (App B)", "app-b", os.getenv("APP_B_SECRET"), os.getenv("APP_B_ORIGIN"), f"{APP_B_ORIGIN}/index.html"),
+            ("Photography & Media Guild (App C)", "app-c", os.getenv("APP_C_SECRET"), os.getenv("APP_C_ORIGIN"), f"{APP_C_ORIGIN}/index.html"),
+            ("Cultural & Dramatics Society (App D)", "app-d", os.getenv("APP_D_SECRET"), os.getenv("APP_D_ORIGIN"), f"{APP_D_ORIGIN}/index.html"),
+            ("Robotics & AI Society (App E)", "app-e", os.getenv("APP_E_SECRET"), os.getenv("APP_E_ORIGIN"), f"{APP_E_ORIGIN}/index.html"),
         ]
-        for name, client_id, env_secret, redirect_uri in default_apps:
-            if not db.query(Product).filter(Product.client_id == client_id).first():
+        for name, client_id, env_secret, env_origin, redirect_uri in default_apps:
+            existing_app = db.query(Product).filter(Product.client_id == client_id).first()
+            if not existing_app:
                 secret_val = env_secret or f"sec_{generate_random_token(24)}"
                 db.add(
                     Product(
@@ -78,6 +79,11 @@ def init_production():
                 )
                 if not env_secret:
                     print(f"Registered {client_id} with generated random secret (store securely): {secret_val}")
+            else:
+                if env_origin:
+                    existing_app.redirect_uri = redirect_uri
+                if env_secret:
+                    existing_app.client_secret_hash = hash_token(env_secret)
 
         if os.getenv("MINT_INITIAL_API_KEY", "false").lower() == "true" and db.query(ApiKey).count() == 0:
             raw_key, prefix, key_hash = generate_api_key()
