@@ -105,6 +105,9 @@ export default function Clubs() {
         return `${proto}//${targetDomain}`;
       }
       // If accessed via ngrok, tunnel, or any remote domain, route through the Vite proxy subpath
+      if (host.includes("vercel.app")) {
+        return `https://sankalpunifiedssosystemdemoapps.vercel.app/${path}/index.html`;
+      }
       if (host.includes("ngrok") || host.includes("trycloudflare") || host.includes("loca.lt")) {
         return `${window.location.origin}/${path}/`;
       }

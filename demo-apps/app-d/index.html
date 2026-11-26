@@ -200,17 +200,11 @@ Authenticates via Real Access OAuth 2.0 Central Identity Provider.
 <script>
   const CLIENT_ID = "app-d";
   const CLIENT_SECRET = "secret-app-d-key-2026";
-  const isDirectPort = window.location.port === "5177";
-  const isSaDomain = window.location.hostname.endsWith(".sa");
-  const AUTH_SERVER = isSaDomain
-    ? window.location.protocol + "//sankalp.sa"
-    : (isDirectPort ? `${window.location.protocol}//${window.location.hostname}:8001` : window.location.origin);
-  const REDIRECT_URI = isSaDomain
-    ? `${window.location.origin}/callback`
-    : (isDirectPort ? `${window.location.protocol}//${window.location.hostname}:5177/callback` : `${window.location.origin}/app-d/callback`);
-  const CENTRAL_PORTAL = isSaDomain
-    ? `${window.location.protocol}//sankalp.sa`
-    : (isDirectPort ? "http://localhost:5180" : window.location.origin);
+  const endpoints = window.SankalpDemoAuth ? window.SankalpDemoAuth.resolveEndpoints(CLIENT_ID, 5177) : {};
+  const isDirectPort = endpoints.isDirectPort ?? (window.location.port === "5177");
+  const AUTH_SERVER = endpoints.authServer ?? (window.location.port === "5177" ? `${window.location.protocol}//${window.location.hostname}:8001` : window.location.origin);
+  const REDIRECT_URI = endpoints.redirectUri ?? (window.location.port === "5177" ? `${window.location.protocol}//${window.location.hostname}:5177/callback` : `${window.location.origin}/app-d/callback`);
+  const CENTRAL_PORTAL = endpoints.centralPortal ?? (window.location.port === "5177" ? "http://localhost:5180" : window.location.origin);
 
   function initiateLogin() {
     const state = "state_chess_" + Math.random().toString(36).substring(7);
